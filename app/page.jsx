@@ -216,7 +216,7 @@ function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor }) {
 
       {manual.length > 0 && (
         <>
-          <h3 className="section-label">No public job feed — quick manual check</h3>
+          <h3 className="section-label">No public job feed — add their careers page URL in Companies to automate, or check manually</h3>
           <ul className="chips">
             {manual.map((r) => (
               <li key={r.company}><a href={r.link} target="_blank" rel="noreferrer">{r.company} ↗</a></li>
@@ -260,6 +260,7 @@ function urlB64(base64String) {
 /* ---------- Companies ---------- */
 function CompaniesTab({ companies, setCompanies, appKey, say }) {
   const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
   async function save(list) {
     setCompanies(list);
     try { await api("/api/companies", appKey, { method: "POST", body: JSON.stringify({ companies: list }) }); }
@@ -277,10 +278,12 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
           onKeyDown={(e) => e.key === "Enter" && add()} />
         <button className="primary" onClick={add} disabled={!name.trim()}>Add</button>
       </div>
+      <input value={url} placeholder="Careers page URL (optional — for companies in the manual-check row)"
+        onChange={(e) => setUrl(e.target.value)} style={{ marginTop: 8 }} />
       <ul className="companies">
         {companies.map((c) => (
           <li key={c.name}>
-            <span>{c.name}</span>
+            <span>{c.name}{c.careersUrl && <em className="src">smart reader</em>}</span>
             <button className="x" aria-label={`Remove ${c.name}`} onClick={() => save(companies.filter((x) => x.name !== c.name))}>×</button>
           </li>
         ))}
@@ -290,8 +293,10 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
   function add() {
     const n = name.trim();
     if (!n || companies.some((c) => c.name.toLowerCase() === n.toLowerCase())) return;
-    save([...companies, { name: n, slug: n.toLowerCase().replace(/[^a-z0-9]/g, "") }]);
-    setName("");
+    const entry = { name: n, slug: n.toLowerCase().replace(/[^a-z0-9]/g, "") };
+    if (url.trim().startsWith("http")) entry.careersUrl = url.trim();
+    save([...companies, entry]);
+    setName(""); setUrl("");
   }
 }
 
