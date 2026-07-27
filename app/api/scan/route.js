@@ -2,7 +2,7 @@ import { runSweep } from "@/lib/jobs";
 import { getJSON } from "@/lib/redis";
 import { currentUser, denied } from "@/lib/auth";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(req) {
   const user = currentUser(req);

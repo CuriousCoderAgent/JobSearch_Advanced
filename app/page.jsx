@@ -43,6 +43,14 @@ export default function Home() {
     setUnlocked(true);
   }
 
+  function signOut() {
+    saveKey("");
+    localStorage.removeItem(KEY_STORE);
+    localStorage.removeItem(NAME_STORE);
+    setUnlocked(false);
+    setSweep(null); setCompanies([]); setSettings(null); setCvs([]); setTab("radar");
+  }
+
   useEffect(() => {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
     if (appKey) loadAll(appKey).catch(() => setUnlocked(false));
@@ -67,7 +75,10 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true" />
           <span className="brand-name">JobRadar</span>
         </div>
-        <span className="topbar-note">Daily sweep · 5:00 PM IST</span>
+        <div className="topbar-right">
+          <span className="topbar-note">Daily sweep · 5:00 PM IST</span>
+          <button className="signout" onClick={signOut}>Sign out</button>
+        </div>
       </header>
 
       {tab === "radar" && (
@@ -182,7 +193,7 @@ function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor }) {
         </div>
         <div className="dial-side">
           <h2>{scanning ? "Sweeping your companies…" : sweep ? `${sweep.companiesScanned} companies scanned` : "Ready for the first sweep"}</h2>
-          <p className="muted">{sweep ? `Last sweep ${when} · ${sweep.newCount} new since previous` : "Add your target companies in the Companies tab, then run your first sweep — after that it happens automatically at 5 PM."}</p>
+          <p className="muted">{sweep ? `Last sweep ${when} · ${sweep.newCount} new · matched by ${sweep.matchMode || "keywords"}` : "Add your target companies in the Companies tab, then run your first sweep — after that it happens automatically at 5 PM."}</p>
           <div className="row">
             <button className="primary" onClick={onScan} disabled={scanning}>{scanning ? "Scanning…" : "Sweep now"}</button>
             <NotifyButton appKey={appKey} say={say} />
@@ -294,8 +305,9 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
           onKeyDown={(e) => e.key === "Enter" && add()} />
         <button className="primary" onClick={add} disabled={!name.trim()}>Add</button>
       </div>
-      <input value={url} placeholder="Careers page URL (optional — for companies in the manual-check row)"
+      <input value={url} placeholder="Careers page URL — for big employers, paste a FILTERED search URL"
         onChange={(e) => setUrl(e.target.value)} style={{ marginTop: 8 }} />
+      <p className="hint">Tip: on a big careers site, search for your role and location first, then copy the URL from the address bar. The radar reads one page — a filtered page is worth 100 unfiltered ones.</p>
       <ul className="companies">
         {companies.map((c) => (
           <li key={c.name}>
@@ -474,7 +486,16 @@ function SettingsTab({ settings, setSettings, appKey, say }) {
       <label className="lbl">My profile (Claude uses this to tailor CVs)</label>
       <textarea rows={6} value={local.profile} onChange={(e) => upd("profile", e.target.value)} />
 
-      <label className="lbl">A role matches if the title contains any of these</label>
+      <label className="lbl">What roles am I looking for? (plain English)</label>
+      <textarea rows={3} value={local.targetRoles || ""} placeholder="e.g. Head, Director or VP of Enterprise Sales; Country Manager; National Sales Head — B2B SaaS or enterprise tech, India"
+        onChange={(e) => upd("targetRoles", e.target.value)} />
+
+      <label className="radio big">
+        <input type="checkbox" checked={local.aiMatch !== false} onChange={(e) => upd("aiMatch", e.target.checked)} />
+        Let Claude judge relevance (recommended — no keyword tuning)
+      </label>
+
+      <label className="lbl">Fallback keywords (used only if AI matching is off)</label>
       <textarea rows={3} value={local.includeKeywords.join(", ")}
         onChange={(e) => upd("includeKeywords", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} />
 
