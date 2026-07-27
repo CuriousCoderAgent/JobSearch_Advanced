@@ -190,6 +190,22 @@ function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor }) {
         </div>
       </div>
 
+      {sweep && (
+        <details className="sweepdetails">
+          <summary>Sweep details — what the radar saw per company</summary>
+          <ul>
+            {sweep.results.map((r) => (
+              <li key={r.company}>
+                <b>{r.company}</b>{" — "}
+                {r.status === "manual"
+                  ? "couldn't read this company's page (manual link shown below)"
+                  : `read via ${r.status}: ${r.total ?? 0} roles seen, ${r.matches.length} matched your keywords`}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {matches.length > 0 && (
         <>
           <h3 className="section-label">Relevant openings</h3>

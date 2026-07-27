@@ -209,3 +209,7 @@ textarea { resize: vertical; }
 .linklike { background: none; border: none; color: var(--indigo); font-weight: 600; font-size: 13.5px; text-decoration: underline; }
 
 .src { font-style: normal; color: var(--jade); font-size: 11px; font-weight: 700; margin-left: 8px; }
+
+.sweepdetails { margin: 14px 0 4px; }
+.sweepdetails summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+.sweepdetails ul { list-style: none; margin: 10px 0 0; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 6px; font-size: 13px; }
