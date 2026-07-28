@@ -1,6 +1,6 @@
 import { getUsers, saveUsers, hashPassword, makeToken, normalizeUsername } from "@/lib/auth";
 import { setJSON } from "@/lib/redis";
-import { settingsForDomain } from "@/lib/seed";
+import { settingsForDomain, companiesForDomain } from "@/lib/seed";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -31,7 +31,7 @@ export async function POST(req) {
   users[u] = { pw: hashPassword(password), domain: domain || "Sales", email: trimmedEmail, createdAt: new Date().toISOString() };
   await saveUsers(users);
   await setJSON(`settings:${u}`, settingsForDomain(domain));
-  await setJSON(`companies:${u}`, []);
+  await setJSON(`companies:${u}`, companiesForDomain(domain));
   await setJSON(`applications:${u}`, []);
 
   return Response.json({ token: makeToken(u), username: u });

@@ -108,6 +108,12 @@ export default function Home() {
         try {
           await loadAll(k); saveKey(k);
           if (justSignedUp && !localStorage.getItem(TOUR_STORE)) setShowTour(true);
+          if (justSignedUp) {
+            setScanning(true);
+            try { const r = await api("/api/scan", k, { method: "POST" }); setSweep(r.sweep); }
+            catch { /* first sweep is a nice-to-have, not required for signup to succeed */ }
+            setScanning(false);
+          }
         } catch (e) { throw e; }
       }} />
     );
@@ -536,6 +542,9 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
     <section className="pane">
       <h2 className="pane-title">Target companies <span className="count">{companies.length}</span></h2>
       <p className="muted">The daily 5 PM sweep checks every company here. Start by adding the companies you'd love to work at — dream ones included. The radar finds each one's careers page on its own; no URL needed.</p>
+      {companies.some((c) => c.suggested) && (
+        <p className="hint">We've pre-loaded a few well-known employers to get you started — remove any that don't fit, or add your own.</p>
+      )}
       {companies.length === 0 && (
         <div className="empty">Your list is empty. Add 10–30 target companies to give the radar something to sweep.</div>
       )}
@@ -553,7 +562,9 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
             <span className="company-row">
               <Avatar name={c.name} />
               {c.name}
-              {c.careersUrl && <em className="src">{c.autoDetected ? "auto-detected" : "smart reader"}</em>}
+              {c.suggested
+                ? <em className="src">starter pick</em>
+                : c.careersUrl && <em className="src">{c.autoDetected ? "auto-detected" : "smart reader"}</em>}
             </span>
             <button className="x" aria-label={`Remove ${c.name}`} onClick={() => save(companies.filter((x) => x.name !== c.name))}>×</button>
           </li>
