@@ -26,6 +26,14 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" defer></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js" defer></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            var t = localStorage.getItem("jobradar-theme");
+            if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+          } catch (e) {}
+        ` }} />
       </head>
       <body>{children}</body>
     </html>
