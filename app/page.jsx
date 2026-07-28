@@ -66,15 +66,21 @@ export default function Home() {
   const [companies, setCompanies] = useState([]);
   const [settings, setSettings] = useState(null);
   const [cvs, setCvs] = useState([]);
+  const [email, setEmail] = useState("");
+  const [applications, setApplications] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [toast, setToast] = useState("");
 
   const say = (m) => { setToast(m); setTimeout(() => setToast(""), 3500); };
 
   async function loadAll(k) {
-    const [s, c, st, cv] = await Promise.all([
-      api("/api/scan", k), api("/api/companies", k), api("/api/settings", k), api("/api/cvs", k)
+    const [s, c, st, cv, acc, apps] = await Promise.all([
+      api("/api/scan", k), api("/api/companies", k), api("/api/settings", k), api("/api/cvs", k),
+      api("/api/account", k), api("/api/applications", k)
     ]);
     setSweep(s.sweep); setCompanies(c.companies); setSettings(st.settings); setCvs(cv.cvs);
+    setEmail(acc.email || ""); setApplications(apps.applications || []);
+    api("/api/admin/users", k).then(() => setIsAdmin(true)).catch(() => setIsAdmin(false));
     setUnlocked(true);
   }
 
@@ -83,7 +89,8 @@ export default function Home() {
     localStorage.removeItem(KEY_STORE);
     localStorage.removeItem(NAME_STORE);
     setUnlocked(false);
-    setSweep(null); setCompanies([]); setSettings(null); setCvs([]); setTab("radar");
+    setSweep(null); setCompanies([]); setSettings(null); setCvs([]);
+    setEmail(""); setApplications([]); setIsAdmin(false); setTab("radar");
   }
 
   useEffect(() => {
@@ -101,6 +108,12 @@ export default function Home() {
         try {
           await loadAll(k); saveKey(k);
           if (justSignedUp && !localStorage.getItem(TOUR_STORE)) setShowTour(true);
+          if (justSignedUp) {
+            setScanning(true);
+            try { const r = await api("/api/scan", k, { method: "POST" }); setSweep(r.sweep); }
+            catch { /* first sweep is a nice-to-have, not required for signup to succeed */ }
+            setScanning(false);
+          }
         } catch (e) { throw e; }
       }} />
     );
@@ -116,6 +129,15 @@ export default function Home() {
     setScanning(false);
   }
 
+  async function trackJob(m) {
+    if (applications.some((a) => a.id === m.id)) { say("Already in your tracker."); return; }
+    const entry = { id: m.id, title: m.title, company: m.company, url: m.url, location: m.location || "", status: "saved", addedAt: new Date().toISOString() };
+    const list = [entry, ...applications];
+    setApplications(list);
+    try { await api("/api/applications", appKey, { method: "POST", body: JSON.stringify({ applications: list }) }); say("Added to your tracker."); }
+    catch (e) { say(e.message); }
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -125,6 +147,11 @@ export default function Home() {
         </div>
         <div className="topbar-right">
           <span className="topbar-note">Daily sweep · 5:00 PM IST</span>
+          {isAdmin && (
+            <button className="theme-toggle" aria-label="Admin dashboard" title="Admin dashboard" onClick={() => setTab("admin")}>
+              <TabIcon id="admin" />
+            </button>
+          )}
           <ThemeToggle />
           <button className="signout" onClick={signOut}>Sign out</button>
         </div>
@@ -135,22 +162,31 @@ export default function Home() {
       {tab === "radar" && (
         <RadarTab sweep={sweep} scanning={scanning} onScan={scanNow} appKey={appKey} say={say} companies={companies}
           onTailor={(m) => { sessionStorage.setItem("tailor-job", JSON.stringify(m)); setTab("cv"); }}
+          onTrack={trackJob} applications={applications}
           onGo={setTab} />
       )}
       {tab === "companies" && (
         <CompaniesTab companies={companies} setCompanies={setCompanies} appKey={appKey} say={say} />
       )}
+      {tab === "tracker" && (
+        <TrackerTab applications={applications} setApplications={setApplications} appKey={appKey} say={say} />
+      )}
       {tab === "cv" && (
         <CvTab cvs={cvs} setCvs={setCvs} appKey={appKey} say={say} matches={allMatches} />
       )}
       {tab === "settings" && settings && (
-        <SettingsTab settings={settings} setSettings={setSettings} appKey={appKey} say={say} />
+        <SettingsTab settings={settings} setSettings={setSettings} appKey={appKey} say={say} email={email} setEmail={setEmail} />
+      )}
+      {tab === "admin" && isAdmin && (
+        <AdminTab appKey={appKey} say={say} />
       )}
 
       {toast && <div className="toast">{toast}</div>}
 
       <nav className="tabbar">
-        {[["radar", "Radar"], ["companies", "Companies"], ["cv", "CV Studio"], ["settings", "Settings"]].map(([id, label]) => (
+        {[
+          ["radar", "Radar"], ["companies", "Companies"], ["tracker", "Tracker"], ["cv", "CV Studio"], ["settings", "Settings"]
+        ].map(([id, label]) => (
           <button key={id} className={tab === id ? "tab on" : "tab"} onClick={() => setTab(id)}>
             <TabIcon id={id} />
             <span>{label}</span>
@@ -217,7 +253,10 @@ function Gate({ onUnlock }) {
   const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [domain, setDomain] = useState("Sales");
+  const [email, setEmail] = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
   const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
   const DOMAIN_OPTIONS = ["Finance", "Sales", "Marketing", "IT & Technology",
@@ -229,7 +268,7 @@ function Gate({ onUnlock }) {
       const res = await fetch(`/api/auth/${mode === "login" ? "login" : "signup"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, inviteCode, domain })
+        body: JSON.stringify({ username, password, inviteCode, domain, email })
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Something went wrong.");
@@ -237,6 +276,41 @@ function Gate({ onUnlock }) {
       await onUnlock(j.token, mode === "signup");
     } catch (e) { setErr(e.message); }
     setBusy(false);
+  }
+
+  async function sendResetLink() {
+    setBusy(true); setErr(""); setNotice("");
+    try {
+      const res = await fetch("/api/auth/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Something went wrong.");
+      setNotice(j.message || "If that email is registered, a reset link is on its way.");
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  if (mode === "forgot") {
+    return (
+      <main className="gate">
+        <div className="gate-card">
+          <span className="brand-mark big" aria-hidden="true" />
+          <h1>JobRadar</h1>
+          <p>Enter the email on your account and we'll send a reset link.</p>
+          <input type="email" value={forgotEmail} placeholder="Email address" autoCapitalize="none"
+            onChange={(e) => setForgotEmail(e.target.value)} />
+          <button className="primary" disabled={busy || !forgotEmail.trim()} onClick={sendResetLink}>
+            {busy ? "Sending…" : "Send reset link"}
+          </button>
+          {notice && <p className="ok">{notice}</p>}
+          {err && <p className="err">{err}</p>}
+          <button className="linklike" onClick={() => { setMode("login"); setErr(""); setNotice(""); }}>Back to sign in</button>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -253,6 +327,8 @@ function Gate({ onUnlock }) {
             <select value={domain} onChange={(e) => setDomain(e.target.value)}>
               {DOMAIN_OPTIONS.map((d) => <option key={d} value={d}>My field: {d}</option>)}
             </select>
+            <input type="email" value={email} placeholder="Email — for your 5 PM digest and password recovery"
+              onChange={(e) => setEmail(e.target.value)} />
           </>
         )}
         <button className="primary" disabled={busy || !username || !password} onClick={go}>
@@ -262,6 +338,9 @@ function Gate({ onUnlock }) {
         <button className="linklike" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setErr(""); }}>
           {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
         </button>
+        {mode === "login" && (
+          <button className="linklike" onClick={() => { setMode("forgot"); setErr(""); }}>Forgot password?</button>
+        )}
       </div>
     </main>
   );
@@ -292,7 +371,7 @@ function GettingStarted({ companies, sweep, onGo }) {
 }
 
 /* ---------- Radar ---------- */
-function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor, companies, onGo }) {
+function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor, companies, onGo, onTrack, applications }) {
   const matches = sweep ? sweep.results.flatMap((r) => r.matches) : [];
   const manual = sweep ? sweep.results.filter((r) => r.status === "manual") : [];
   const when = sweep ? new Date(sweep.at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : null;
@@ -357,6 +436,9 @@ function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor, companies, o
                 <div className="job-actions">
                   <a className="ghost" href={m.url} target="_blank" rel="noreferrer">View</a>
                   <button className="ghost" onClick={() => onTailor(m)}>Tailor CV</button>
+                  {applications.some((a) => a.id === m.id)
+                    ? <span className="ok">Tracked ✓</span>
+                    : <button className="ghost" onClick={() => onTrack(m)}>Track</button>}
                 </div>
               </li>
             ))}
@@ -436,6 +518,12 @@ function TabIcon({ id }) {
   if (id === "cv") return (
     <svg {...common}><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M14 3v4h4" /><path d="M8 13h8M8 16.5h8M8 9.5h4" /></svg>
   );
+  if (id === "tracker") return (
+    <svg {...common}><rect x="3" y="4" width="18" height="17" rx="2" /><path d="M3 9h18" /><path d="M7 13.5l2 2 4-4.5" /></svg>
+  );
+  if (id === "admin") return (
+    <svg {...common}><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" /><path d="M9.5 12l1.8 1.8L14.5 10" /></svg>
+  );
   return (
     <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.65 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.65a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.65a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.35 9a1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z" /></svg>
   );
@@ -454,6 +542,9 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
     <section className="pane">
       <h2 className="pane-title">Target companies <span className="count">{companies.length}</span></h2>
       <p className="muted">The daily 5 PM sweep checks every company here. Start by adding the companies you'd love to work at — dream ones included. The radar finds each one's careers page on its own; no URL needed.</p>
+      {companies.some((c) => c.suggested) && (
+        <p className="hint">We've pre-loaded a few well-known employers to get you started — remove any that don't fit, or add your own.</p>
+      )}
       {companies.length === 0 && (
         <div className="empty">Your list is empty. Add 10–30 target companies to give the radar something to sweep.</div>
       )}
@@ -471,7 +562,9 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
             <span className="company-row">
               <Avatar name={c.name} />
               {c.name}
-              {c.careersUrl && <em className="src">{c.autoDetected ? "auto-detected" : "smart reader"}</em>}
+              {c.suggested
+                ? <em className="src">starter pick</em>
+                : c.careersUrl && <em className="src">{c.autoDetected ? "auto-detected" : "smart reader"}</em>}
             </span>
             <button className="x" aria-label={`Remove ${c.name}`} onClick={() => save(companies.filter((x) => x.name !== c.name))}>×</button>
           </li>
@@ -487,6 +580,61 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
     save([...companies, entry]);
     setName(""); setUrl("");
   }
+}
+
+/* ---------- Application tracker ---------- */
+const APP_STATUSES = [
+  { id: "saved", label: "Saved" },
+  { id: "applied", label: "Applied" },
+  { id: "interviewing", label: "Interviewing" },
+  { id: "offer", label: "Offer" },
+  { id: "rejected", label: "Rejected" }
+];
+
+function TrackerTab({ applications, setApplications, appKey, say }) {
+  async function save(list) {
+    setApplications(list);
+    try { await api("/api/applications", appKey, { method: "POST", body: JSON.stringify({ applications: list }) }); }
+    catch (e) { say(e.message); }
+  }
+  const setStatus = (id, status) => save(applications.map((a) => (a.id === id ? { ...a, status, updatedAt: new Date().toISOString() } : a)));
+  const remove = (id) => save(applications.filter((a) => a.id !== id));
+
+  return (
+    <section className="pane">
+      <h2 className="pane-title">Application tracker <span className="count">{applications.length}</span></h2>
+      <p className="muted">Tap "Track" on any match in the Radar tab to add it here, then move it along as you apply.</p>
+      {applications.length === 0 && (
+        <div className="empty">Nothing tracked yet. Go to the Radar tab and tap "Track" on a role you're considering.</div>
+      )}
+      {APP_STATUSES.map((s) => {
+        const items = applications.filter((a) => a.status === s.id);
+        if (!items.length) return null;
+        return (
+          <div key={s.id}>
+            <h3 className="section-label">{s.label} <span className="count">{items.length}</span></h3>
+            <ul className="jobs">
+              {items.map((a) => (
+                <li key={a.id} className="job">
+                  <Avatar name={a.company} />
+                  <div className="job-main">
+                    <span className="job-title">{a.title}</span>
+                    <span className="job-meta">{a.company}{a.location ? ` · ${a.location}` : ""}</span>
+                  </div>
+                  <div className="job-actions">
+                    <select value={a.status} onChange={(e) => setStatus(a.id, e.target.value)}>
+                      {APP_STATUSES.map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
+                    </select>
+                    <button className="x" aria-label={`Remove ${a.title}`} onClick={() => remove(a.id)}>×</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </section>
+  );
 }
 
 /* ---------- CV Studio ---------- */
@@ -727,10 +875,12 @@ function ScoreSection({ cvText, jd, job, appKey, say }) {
 }
 
 /* ---------- Settings ---------- */
-function SettingsTab({ settings, setSettings, appKey, say }) {
+function SettingsTab({ settings, setSettings, appKey, say, email, setEmail }) {
   const [local, setLocal] = useState(settings);
   const [includeText, setIncludeText] = useState((settings.includeKeywords || []).join(", "));
   const [excludeText, setExcludeText] = useState((settings.excludeKeywords || []).join(", "));
+  const [emailText, setEmailText] = useState(email || "");
+  const [emailBusy, setEmailBusy] = useState(false);
   const upd = (k, v) => setLocal({ ...local, [k]: v });
   const parseList = (text) => text.split(",").map((s) => s.trim()).filter(Boolean);
   async function save() {
@@ -740,9 +890,26 @@ function SettingsTab({ settings, setSettings, appKey, say }) {
       setSettings(toSave); setLocal(toSave); say("Saved. The next sweep uses these rules.");
     } catch (e) { say(e.message); }
   }
+  async function saveEmail() {
+    setEmailBusy(true);
+    try {
+      await api("/api/account", appKey, { method: "POST", body: JSON.stringify({ email: emailText }) });
+      setEmail(emailText); say("Email saved.");
+    } catch (e) { say(e.message); }
+    setEmailBusy(false);
+  }
   return (
     <section className="pane">
       <h2 className="pane-title">Settings</h2>
+
+      <label className="lbl">Email — for your 5 PM digest and password recovery</label>
+      <div className="row">
+        <input type="email" value={emailText} placeholder="you@example.com" onChange={(e) => setEmailText(e.target.value)} />
+        <button className="ghost" onClick={saveEmail} disabled={emailBusy || emailText === (email || "")}>
+          {emailBusy ? "Saving…" : "Save"}
+        </button>
+      </div>
+      <p className="hint">Without an email, you'll only get alerts through push notifications on this device.</p>
 
       <label className="lbl">My profile (Claude uses this to tailor CVs)</label>
       <textarea rows={6} value={local.profile} onChange={(e) => upd("profile", e.target.value)} />
@@ -768,6 +935,58 @@ function SettingsTab({ settings, setSettings, appKey, say }) {
       </label>
 
       <button className="primary wide" onClick={save}>Save settings</button>
+    </section>
+  );
+}
+
+/* ---------- Admin ---------- */
+function AdminTab({ appKey, say }) {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(true);
+
+  async function load() {
+    setBusy(true);
+    try { const r = await api("/api/admin/users", appKey); setRows(r.users); }
+    catch (e) { say(e.message); }
+    setBusy(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  const fmt = (iso) => (iso ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" }) : "—");
+
+  return (
+    <section className="pane">
+      <h2 className="pane-title">Admin <span className="count">{rows ? rows.length : ""}</span></h2>
+      <p className="muted">Usage across every account — only visible to you.</p>
+      {busy && !rows && <div className="empty">Loading…</div>}
+      {rows && (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>User</th><th>Email</th><th>Domain</th><th>Companies</th><th>CVs</th>
+                <th>Tracked</th><th>Sweeps</th><th>Claude calls</th><th>Last active</th><th>Joined</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.username}>
+                  <td>{r.username}</td>
+                  <td>{r.email || "—"}</td>
+                  <td>{r.domain || "—"}</td>
+                  <td>{r.companies}</td>
+                  <td>{r.cvs}</td>
+                  <td>{r.applications}</td>
+                  <td>{r.sweeps}</td>
+                  <td>{r.claudeCalls}</td>
+                  <td>{fmt(r.lastActive)}</td>
+                  <td>{fmt(r.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

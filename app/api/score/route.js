@@ -1,4 +1,5 @@
 import { currentUser, denied } from "@/lib/auth";
+import { bumpUsage, touchLastActive } from "@/lib/usage";
 
 export const maxDuration = 60;
 
@@ -52,5 +53,7 @@ export async function POST(req) {
   if (!m) return Response.json({ error: "Couldn't parse the score. Try again." }, { status: 502 });
   let result;
   try { result = JSON.parse(m[0]); } catch { return Response.json({ error: "Couldn't parse the score. Try again." }, { status: 502 }); }
+  await bumpUsage(`usage:claude:${user}`);
+  await touchLastActive(user);
   return Response.json({ result });
 }
