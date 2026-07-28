@@ -152,7 +152,8 @@ export default function Home() {
       <nav className="tabbar">
         {[["radar", "Radar"], ["companies", "Companies"], ["cv", "CV Studio"], ["settings", "Settings"]].map(([id, label]) => (
           <button key={id} className={tab === id ? "tab on" : "tab"} onClick={() => setTab(id)}>
-            {label}
+            <TabIcon id={id} />
+            <span>{label}</span>
             {id === "radar" && newMatches.length > 0 && <em className="pip">{newMatches.length}</em>}
           </button>
         ))}
@@ -348,6 +349,7 @@ function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor, companies, o
           <ul className="jobs">
             {matches.sort((a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0)).map((m) => (
               <li key={m.id} className="job">
+                <Avatar name={m.company} />
                 <div className="job-main">
                   <span className="job-title">{m.title} {m.isNew && <em className="new">NEW</em>}</span>
                   <span className="job-meta">{m.company}{m.location ? ` · ${m.location}` : ""}</span>
@@ -409,6 +411,36 @@ function urlB64(base64String) {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
+/* ---------- Company initial avatar ---------- */
+const AVATAR_COLORS = ["#3d4c9e", "#2f9e77", "#c0392b", "#8e44ad", "#c1791e", "#1f7a8c", "#a13d63", "#4c6b3d"];
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function Avatar({ name }) {
+  const color = AVATAR_COLORS[hashStr(name || "") % AVATAR_COLORS.length];
+  const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+  return <span className="avatar" style={{ background: color }} aria-hidden="true">{initial}</span>;
+}
+
+/* ---------- Tab bar icons ---------- */
+function TabIcon({ id }) {
+  const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" };
+  if (id === "radar") return (
+    <svg {...common}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4.5" /><path d="M12 2.5v3M21.5 12h-3M12 21.5v-3M2.5 12h3" /></svg>
+  );
+  if (id === "companies") return (
+    <svg {...common}><rect x="4" y="9" width="7" height="11" /><rect x="13" y="4" width="7" height="16" /><path d="M6.5 12.5h2M6.5 15.5h2M15.5 7.5h2M15.5 10.5h2M15.5 13.5h2" /></svg>
+  );
+  if (id === "cv") return (
+    <svg {...common}><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" /><path d="M14 3v4h4" /><path d="M8 13h8M8 16.5h8M8 9.5h4" /></svg>
+  );
+  return (
+    <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.65 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.65a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.65a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.35 9a1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z" /></svg>
+  );
+}
+
 /* ---------- Companies ---------- */
 function CompaniesTab({ companies, setCompanies, appKey, say }) {
   const [name, setName] = useState("");
@@ -421,7 +453,7 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
   return (
     <section className="pane">
       <h2 className="pane-title">Target companies <span className="count">{companies.length}</span></h2>
-      <p className="muted">The daily 5 PM sweep checks every company here. Start by adding the companies you'd love to work at — dream ones included.</p>
+      <p className="muted">The daily 5 PM sweep checks every company here. Start by adding the companies you'd love to work at — dream ones included. The radar finds each one's careers page on its own; no URL needed.</p>
       {companies.length === 0 && (
         <div className="empty">Your list is empty. Add 10–30 target companies to give the radar something to sweep.</div>
       )}
@@ -430,13 +462,17 @@ function CompaniesTab({ companies, setCompanies, appKey, say }) {
           onKeyDown={(e) => e.key === "Enter" && add()} />
         <button className="primary" onClick={add} disabled={!name.trim()}>Add</button>
       </div>
-      <input value={url} placeholder="Careers page URL — for big employers, paste a FILTERED search URL"
+      <input value={url} placeholder="Optional: paste a careers URL to point the radar at a specific filtered search"
         onChange={(e) => setUrl(e.target.value)} style={{ marginTop: 8 }} />
-      <p className="hint">Tip: on a big careers site, search for your role and location first, then copy the URL from the address bar. The radar reads one page — a filtered page is worth 100 unfiltered ones.</p>
+      <p className="hint">You only need this if a company doesn't post through a job board the radar already knows, or if you want to narrow it to a specific role/location search on a big careers site.</p>
       <ul className="companies">
         {companies.map((c) => (
           <li key={c.name}>
-            <span>{c.name}{c.careersUrl && <em className="src">smart reader</em>}</span>
+            <span className="company-row">
+              <Avatar name={c.name} />
+              {c.name}
+              {c.careersUrl && <em className="src">{c.autoDetected ? "auto-detected" : "smart reader"}</em>}
+            </span>
             <button className="x" aria-label={`Remove ${c.name}`} onClick={() => save(companies.filter((x) => x.name !== c.name))}>×</button>
           </li>
         ))}
