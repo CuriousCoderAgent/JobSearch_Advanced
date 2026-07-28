@@ -2,7 +2,9 @@ import { runSweep } from "@/lib/jobs";
 import { getJSON } from "@/lib/redis";
 import { currentUser, denied } from "@/lib/auth";
 
-export const maxDuration = 300;
+// Vercel Hobby (free) plan caps functions at 60s regardless of this value —
+// set to that ceiling so behavior is the same and predictable on either plan.
+export const maxDuration = 60;
 
 export async function GET(req) {
   const user = currentUser(req);

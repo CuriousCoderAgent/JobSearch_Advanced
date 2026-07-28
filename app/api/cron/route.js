@@ -1,10 +1,15 @@
 import webpush from "web-push";
-import { runSweep } from "@/lib/jobs";
+import { runSweep, mapLimit } from "@/lib/jobs";
 import { getJSON, setJSON } from "@/lib/redis";
 import { getUsers } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
 
-export const maxDuration = 300;
+// Vercel's Hobby (free) plan caps a function at 60s regardless of what's
+// requested here — Pro/Enterprise allow more. Keep this at the Hobby ceiling
+// so the app deploys and runs the same on either plan; users are processed
+// concurrently below specifically to fit the whole daily sweep inside it.
+export const maxDuration = 60;
+const TIME_BUDGET_MS = 50_000; // leave a buffer under maxDuration for the response itself
 
 export async function GET(req) {
   const auth = req.headers.get("authorization") || "";
@@ -23,9 +28,14 @@ export async function GET(req) {
   const origin = req.headers.get("origin") || new URL(req.url).origin;
   const users = await getUsers();
   const usernames = Object.keys(users);
-  const summary = [];
+  const deadline = Date.now() + TIME_BUDGET_MS;
 
-  for (const user of usernames) {
+  // Process users concurrently (not one-by-one) so total wall-clock time
+  // doesn't scale linearly with the number of accounts. Anyone left over
+  // when the time budget runs out is skipped for today, not hard-killed
+  // mid-write — they're picked up on tomorrow's run instead.
+  const summary = await mapLimit(usernames, 4, async (user) => {
+    if (Date.now() > deadline) return { user, skipped: true, reason: "time budget reached — will run next cycle" };
     try {
       const sweep = await runSweep(user);
       const fresh = sweep.results.flatMap((r) => r.matches).filter((m) => m.isNew);
@@ -65,11 +75,11 @@ export async function GET(req) {
         emailed = result.sent;
       }
 
-      summary.push({ user, newCount: sweep.newCount, notified: sent, emailed });
+      return { user, newCount: sweep.newCount, notified: sent, emailed };
     } catch (e) {
-      summary.push({ user, error: String(e).slice(0, 120) });
+      return { user, error: String(e).slice(0, 120) };
     }
-  }
+  });
 
   return Response.json({ ok: true, users: usernames.length, summary });
 }
