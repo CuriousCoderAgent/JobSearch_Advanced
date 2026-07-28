@@ -693,11 +693,15 @@ function ScoreSection({ cvText, jd, job, appKey, say }) {
 /* ---------- Settings ---------- */
 function SettingsTab({ settings, setSettings, appKey, say }) {
   const [local, setLocal] = useState(settings);
+  const [includeText, setIncludeText] = useState((settings.includeKeywords || []).join(", "));
+  const [excludeText, setExcludeText] = useState((settings.excludeKeywords || []).join(", "));
   const upd = (k, v) => setLocal({ ...local, [k]: v });
+  const parseList = (text) => text.split(",").map((s) => s.trim()).filter(Boolean);
   async function save() {
+    const toSave = { ...local, includeKeywords: parseList(includeText), excludeKeywords: parseList(excludeText) };
     try {
-      await api("/api/settings", appKey, { method: "POST", body: JSON.stringify({ settings: local }) });
-      setSettings(local); say("Saved. The next sweep uses these rules.");
+      await api("/api/settings", appKey, { method: "POST", body: JSON.stringify({ settings: toSave }) });
+      setSettings(toSave); setLocal(toSave); say("Saved. The next sweep uses these rules.");
     } catch (e) { say(e.message); }
   }
   return (
@@ -717,12 +721,10 @@ function SettingsTab({ settings, setSettings, appKey, say }) {
       </label>
 
       <label className="lbl">Fallback keywords (used only if AI matching is off)</label>
-      <textarea rows={3} value={local.includeKeywords.join(", ")}
-        onChange={(e) => upd("includeKeywords", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} />
+      <textarea rows={3} value={includeText} onChange={(e) => setIncludeText(e.target.value)} />
 
       <label className="lbl">Skip roles containing</label>
-      <textarea rows={2} value={local.excludeKeywords.join(", ")}
-        onChange={(e) => upd("excludeKeywords", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} />
+      <textarea rows={2} value={excludeText} onChange={(e) => setExcludeText(e.target.value)} />
 
       <label className="radio big">
         <input type="checkbox" checked={local.indiaOnly} onChange={(e) => upd("indiaOnly", e.target.checked)} />
