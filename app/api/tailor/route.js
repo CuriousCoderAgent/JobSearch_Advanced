@@ -1,5 +1,6 @@
 import { getJSON } from "@/lib/redis";
 import { currentUser, denied } from "@/lib/auth";
+import { bumpUsage, touchLastActive } from "@/lib/usage";
 
 export const maxDuration = 60;
 
@@ -52,5 +53,7 @@ export async function POST(req) {
   }
   const data = await res.json();
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  await bumpUsage(`usage:claude:${user}`);
+  await touchLastActive(user);
   return Response.json({ text });
 }
