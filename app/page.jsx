@@ -3,12 +3,45 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const KEY_STORE = "jobradar-session";
 const NAME_STORE = "jobradar-username";
+const THEME_STORE = "jobradar-theme";
+const TOUR_STORE = "jobradar-tour-seen";
 
 function useAppKey() {
   const [appKey, setAppKey] = useState("");
-  useEffect(() => { setAppKey(localStorage.getItem(KEY_STORE) || ""); }, []);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setAppKey(localStorage.getItem(KEY_STORE) || ""); setReady(true); }, []);
   const save = (k) => { localStorage.setItem(KEY_STORE, k); setAppKey(k); };
-  return [appKey, save];
+  return [appKey, save, ready];
+}
+
+function useTheme() {
+  const [theme, setTheme] = useState("system");
+  const [systemDark, setSystemDark] = useState(false);
+  useEffect(() => {
+    setTheme(localStorage.getItem(THEME_STORE) || "system");
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    setSystemDark(mq.matches);
+    const onChange = (e) => setSystemDark(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const isDark = theme === "dark" || (theme === "system" && systemDark);
+  const toggle = () => {
+    const next = isDark ? "light" : "dark";
+    localStorage.setItem(THEME_STORE, next);
+    document.documentElement.setAttribute("data-theme", next);
+    setTheme(next);
+  };
+  return [isDark, toggle];
+}
+
+function ThemeToggle() {
+  const [isDark, toggle] = useTheme();
+  return (
+    <button className="theme-toggle" aria-label="Toggle dark mode" onClick={toggle} title="Toggle dark mode">
+      {isDark ? "☀️" : "🌙"}
+    </button>
+  );
 }
 
 async function api(path, appKey, opts = {}) {
@@ -22,9 +55,11 @@ async function api(path, appKey, opts = {}) {
 }
 
 export default function Home() {
-  const [appKey, saveKey] = useAppKey();
+  const [appKey, saveKey, keyReady] = useAppKey();
   const [unlocked, setUnlocked] = useState(false);
+  const [booting, setBooting] = useState(true);
   const [tab, setTab] = useState("radar");
+  const [showTour, setShowTour] = useState(false);
 
   const [sweep, setSweep] = useState(null);
   const [scanning, setScanning] = useState(false);
@@ -53,10 +88,23 @@ export default function Home() {
 
   useEffect(() => {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
-    if (appKey) loadAll(appKey).catch(() => setUnlocked(false));
-  }, [appKey]);
+    if (!keyReady) return;
+    if (appKey) loadAll(appKey).catch(() => setUnlocked(false)).finally(() => setBooting(false));
+    else setBooting(false);
+  }, [appKey, keyReady]);
 
-  if (!unlocked) return <Gate onUnlock={async (k) => { try { await loadAll(k); saveKey(k); } catch (e) { throw e; } }} />;
+  if (booting) return <BootSkeleton />;
+
+  if (!unlocked) {
+    return (
+      <Gate onUnlock={async (k, justSignedUp) => {
+        try {
+          await loadAll(k); saveKey(k);
+          if (justSignedUp && !localStorage.getItem(TOUR_STORE)) setShowTour(true);
+        } catch (e) { throw e; }
+      }} />
+    );
+  }
 
   const allMatches = sweep ? sweep.results.flatMap((r) => r.matches) : [];
   const newMatches = allMatches.filter((m) => m.isNew);
@@ -77,13 +125,17 @@ export default function Home() {
         </div>
         <div className="topbar-right">
           <span className="topbar-note">Daily sweep · 5:00 PM IST</span>
+          <ThemeToggle />
           <button className="signout" onClick={signOut}>Sign out</button>
         </div>
       </header>
 
+      {showTour && <OnboardingTour onDone={() => { localStorage.setItem(TOUR_STORE, "1"); setShowTour(false); }} onGo={setTab} />}
+
       {tab === "radar" && (
-        <RadarTab sweep={sweep} scanning={scanning} onScan={scanNow} appKey={appKey} say={say}
-          onTailor={(m) => { sessionStorage.setItem("tailor-job", JSON.stringify(m)); setTab("cv"); }} />
+        <RadarTab sweep={sweep} scanning={scanning} onScan={scanNow} appKey={appKey} say={say} companies={companies}
+          onTailor={(m) => { sessionStorage.setItem("tailor-job", JSON.stringify(m)); setTab("cv"); }}
+          onGo={setTab} />
       )}
       {tab === "companies" && (
         <CompaniesTab companies={companies} setCompanies={setCompanies} appKey={appKey} say={say} />
@@ -106,6 +158,54 @@ export default function Home() {
         ))}
       </nav>
     </main>
+  );
+}
+
+/* ---------- Boot skeleton ---------- */
+function BootSkeleton() {
+  return (
+    <div className="skeleton-shell" aria-busy="true" aria-label="Loading JobRadar">
+      <div className="skel" style={{ height: 40, width: 160 }} />
+      <div className="skel" style={{ height: 148, width: "100%" }} />
+      <div className="skel" style={{ height: 20, width: "45%" }} />
+      <div className="skel" style={{ height: 66, width: "100%" }} />
+      <div className="skel" style={{ height: 66, width: "100%" }} />
+      <div className="skel" style={{ height: 66, width: "100%" }} />
+    </div>
+  );
+}
+
+/* ---------- First-run onboarding tour ---------- */
+function OnboardingTour({ onDone, onGo }) {
+  const [step, setStep] = useState(0);
+  const steps = [
+    { icon: "📡", title: "Meet your Radar", body: "This is the home screen. Run a Sweep any time, or just wait — it checks your companies automatically every day at 5 PM IST and flags anything new." },
+    { icon: "🏢", title: "Add target companies", body: "Head to Companies and list 10–30 places you'd love to work. The Radar only watches companies you add, so start there." },
+    { icon: "✍️", title: "CV Studio", body: "Pick any matched role — or paste a job description — and Claude will tailor a CV or cover letter from your profile or an existing resume." },
+    { icon: "⚙️", title: "Tune your Settings", body: "Fill in your profile and the roles you want. That's what Claude uses to judge relevance and write your CVs — the better it is, the sharper everything else gets." }
+  ];
+  const s = steps[step];
+  const last = step === steps.length - 1;
+  return (
+    <div className="tour-backdrop" role="dialog" aria-modal="true">
+      <div className="tour-card">
+        <span className="tour-icon" aria-hidden="true">{s.icon}</span>
+        <h2>{s.title}</h2>
+        <p>{s.body}</p>
+        <div className="tour-dots">
+          {steps.map((_, i) => <span key={i} className={i === step ? "on" : ""} />)}
+        </div>
+        <div className="tour-actions">
+          <button className="linklike" onClick={onDone}>Skip</button>
+          <button className="primary" onClick={() => {
+            if (last) { onDone(); if (onGo) onGo("companies"); }
+            else setStep(step + 1);
+          }}>
+            {last ? "Add my first companies" : "Next"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -133,7 +233,7 @@ function Gate({ onUnlock }) {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Something went wrong.");
       localStorage.setItem(NAME_STORE, j.username);
-      await onUnlock(j.token);
+      await onUnlock(j.token, mode === "signup");
     } catch (e) { setErr(e.message); }
     setBusy(false);
   }
@@ -166,14 +266,39 @@ function Gate({ onUnlock }) {
   );
 }
 
+/* ---------- Getting started checklist ---------- */
+function GettingStarted({ companies, sweep, onGo }) {
+  const notified = typeof Notification !== "undefined" && Notification.permission === "granted";
+  const steps = [
+    { done: companies.length > 0, label: "Add a few target companies", go: "companies" },
+    { done: !!sweep, label: "Run your first sweep", go: null },
+    { done: notified, label: "Turn on 5 PM alerts", go: null },
+  ];
+  if (steps.every((s) => s.done)) return null;
+  return (
+    <div className="checklist">
+      <h3>Get set up — 3 quick steps</h3>
+      <ul>
+        {steps.map((s, i) => (
+          <li key={i} className={s.done ? "done" : ""}>
+            <span className="step-dot">{s.done ? "✓" : i + 1}</span>
+            {s.go ? <button className="linklike" onClick={() => onGo(s.go)}>{s.label}</button> : <span>{s.label}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /* ---------- Radar ---------- */
-function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor }) {
+function RadarTab({ sweep, scanning, onScan, appKey, say, onTailor, companies, onGo }) {
   const matches = sweep ? sweep.results.flatMap((r) => r.matches) : [];
   const manual = sweep ? sweep.results.filter((r) => r.status === "manual") : [];
   const when = sweep ? new Date(sweep.at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : null;
 
   return (
     <section className="pane">
+      <GettingStarted companies={companies} sweep={sweep} onGo={onGo} />
       <div className={"dial-card" + (scanning ? " sweeping" : "")}>
         <div className="dial" role="img" aria-label="Sweep status">
           <div className="dial-ring" />
@@ -354,19 +479,31 @@ function CvTab({ cvs, setCvs, appKey, say, matches }) {
     if (!f) return;
     try {
       let text = "";
-      if (f.name.endsWith(".docx") && window.mammoth) {
+      if (f.name.toLowerCase().endsWith(".docx") && window.mammoth) {
         const buf = await f.arrayBuffer();
         const r = await window.mammoth.extractRawText({ arrayBuffer: buf });
         text = r.value;
+      } else if (f.name.toLowerCase().endsWith(".pdf")) {
+        if (!window.pdfjsLib) throw new Error("pdf reader still loading");
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js";
+        const buf = await f.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+        const pages = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          pages.push(content.items.map((it) => it.str).join(" "));
+        }
+        text = pages.join("\n\n");
       } else {
         text = await f.text();
       }
       if (!text.trim()) throw new Error("empty file");
-      const cv = { id: String(Date.now()), name: f.name.replace(/\.(docx|txt|md)$/i, ""), text: text.slice(0, 40000), addedAt: new Date().toISOString() };
+      const cv = { id: String(Date.now()), name: f.name.replace(/\.(docx|pdf|txt|md)$/i, ""), text: text.slice(0, 40000), addedAt: new Date().toISOString() };
       await saveCvs([cv, ...cvs]);
       setBaseId(cv.id);
       say(`Saved "${cv.name}" — it can now be reworked for any role.`);
-    } catch { say("Couldn't read that file. Use .docx or .txt (PDF isn't supported yet)."); }
+    } catch { say("Couldn't read that file. Use .docx, .pdf, or .txt."); }
     e.target.value = "";
   }
 
@@ -394,6 +531,28 @@ function CvTab({ cvs, setCvs, appKey, say, matches }) {
         .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>").replace(/^- (.*)$/gm, "<li>$1</li>").replace(/\n/g, "<br>")}</body></html>`;
       blob = new Blob([html], { type: "application/msword" });
       fname = `CV${job ? " - " + job.company : ""}.doc`;
+    } else if (kind === "pdf") {
+      if (!window.jspdf) { say("PDF export is still loading — try again in a moment."); return; }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const margin = 48;
+      const maxWidth = doc.internal.pageSize.getWidth() - margin * 2;
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let y = margin;
+      for (const rawLine of out.split("\n")) {
+        const isHeading = /^#{1,3}\s/.test(rawLine);
+        const clean = rawLine.replace(/^#{1,3}\s/, "").replace(/\*\*/g, "");
+        doc.setFont("helvetica", isHeading ? "bold" : "normal");
+        doc.setFontSize(isHeading ? 13 : 10.5);
+        const wrapped = clean ? doc.splitTextToSize(clean, maxWidth) : [""];
+        for (const w of wrapped) {
+          if (y > pageHeight - margin) { doc.addPage(); y = margin; }
+          doc.text(w, margin, y);
+          y += isHeading ? 18 : 14;
+        }
+      }
+      blob = doc.output("blob");
+      fname = `CV${job ? " - " + job.company : ""}.pdf`;
     } else {
       blob = new Blob([out], { type: "text/plain" });
       fname = `CV${job ? " - " + job.company : ""}.txt`;
@@ -429,7 +588,7 @@ function CvTab({ cvs, setCvs, appKey, say, matches }) {
           {cvs.map((c) => <option key={c.id} value={c.id}>Rework: {c.name}</option>)}
         </select>
         <button className="ghost" onClick={() => fileRef.current?.click()}>Upload existing CV</button>
-        <input ref={fileRef} type="file" accept=".docx,.txt,.md" hidden onChange={onFile} />
+        <input ref={fileRef} type="file" accept=".docx,.pdf,.txt,.md" hidden onChange={onFile} />
       </div>
 
       <div className="row">
@@ -443,14 +602,17 @@ function CvTab({ cvs, setCvs, appKey, say, matches }) {
 
       {out && (
         <div className="output">
-          <div className="row">
+          <div className="row wrap">
             <button className="ghost" onClick={() => { navigator.clipboard.writeText(out); say("Copied."); }}>Copy</button>
             <button className="ghost" onClick={() => download("doc")}>Download .doc</button>
+            <button className="ghost" onClick={() => download("pdf")}>Download .pdf</button>
             <button className="ghost" onClick={() => download("txt")}>Download .txt</button>
           </div>
           <pre>{out}</pre>
         </div>
       )}
+
+      <ScoreSection cvText={out || cvs.find((c) => c.id === baseId)?.text || ""} jd={jd} job={job} appKey={appKey} say={say} />
 
       {cvs.length > 0 && (
         <>
@@ -466,6 +628,65 @@ function CvTab({ cvs, setCvs, appKey, say, matches }) {
         </>
       )}
     </section>
+  );
+}
+
+/* ---------- CV fit score ---------- */
+function ScoreSection({ cvText, jd, job, appKey, say }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  async function run() {
+    if (!jd.trim()) { say("Paste the job description above first."); return; }
+    if (!cvText.trim()) { say("Generate a CV above, or pick a saved one, before scoring."); return; }
+    setBusy(true); setResult(null);
+    try {
+      const r = await api("/api/score", appKey, {
+        method: "POST",
+        body: JSON.stringify({ cvText, jobTitle: job?.title || "", jobCompany: job?.company || "", jobDescription: jd })
+      });
+      setResult(r.result);
+    } catch (e) { say(e.message); }
+    setBusy(false);
+  }
+
+  const tier = result ? (result.score >= 75 ? "high" : result.score >= 50 ? "mid" : "low") : "";
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <button className="ghost" onClick={run} disabled={busy}>
+        {busy ? "Scoring…" : "Score my fit against this JD"}
+      </button>
+      {result && (
+        <div className="score-card">
+          <div className="score-head">
+            <div className={`score-ring ${tier}`}>{result.score}</div>
+            <div>
+              <strong>{result.verdict}</strong>
+              <p className="muted" style={{ margin: "2px 0 0" }}>Fit score out of 100, judged by Claude against the JD you pasted.</p>
+            </div>
+          </div>
+          <div className="score-cols">
+            <div className="score-col">
+              <h4>Already strong</h4>
+              <ul>{(result.strengths || []).map((s, i) => <li key={i}>{s}</li>)}</ul>
+            </div>
+            <div className="score-col">
+              <h4>Fix before applying</h4>
+              <ul>{(result.gaps || []).map((s, i) => <li key={i}>{s}</li>)}</ul>
+            </div>
+          </div>
+          {result.missingKeywords?.length > 0 && (
+            <div>
+              <h4 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--muted)", margin: "0 0 8px" }}>Missing keywords from the JD</h4>
+              <ul className="chips" style={{ margin: 0 }}>
+                {result.missingKeywords.map((k, i) => <li key={i}><span>{k}</span></li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
