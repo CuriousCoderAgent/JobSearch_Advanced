@@ -60,7 +60,18 @@ function createWindow(): void {
   else mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
-app.whenReady().then(() => {
+// One copy at a time: two would each hold their own copy of your data in memory
+// and overwrite each other's saves. Launching again just brings this window up.
+const primary = app.requestSingleInstanceLock()
+if (!primary) app.quit()
+app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
+
+if (primary) app.whenReady().then(() => {
   app.setAppUserModelId('com.eshangupta.jobradardesk')
 
   // Camera and microphone are needed for interview practice; nothing else.
