@@ -16,6 +16,12 @@ protocol.registerSchemesAsPrivileged([
 // ever loads the app's own files, so shared memory carries no cross-site risk.
 app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer')
 
+// For testing only: run against a throwaway folder instead of your real data.
+if (process.env['JOBRADAR_TEST_DIR']) {
+  app.setPath('userData', join(process.env['JOBRADAR_TEST_DIR'], 'userData'))
+  app.setPath('documents', join(process.env['JOBRADAR_TEST_DIR'], 'Documents'))
+}
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
@@ -54,7 +60,18 @@ function createWindow(): void {
   else mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
-app.whenReady().then(() => {
+// One copy at a time: two would each hold their own copy of your data in memory
+// and overwrite each other's saves. Launching again just brings this window up.
+const primary = app.requestSingleInstanceLock()
+if (!primary) app.quit()
+app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
+
+if (primary) app.whenReady().then(() => {
   app.setAppUserModelId('com.eshangupta.jobradardesk')
 
   // Camera and microphone are needed for interview practice; nothing else.

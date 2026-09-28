@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import confetti from 'canvas-confetti'
 import {
-  BookOpenCheck, CalendarClock, ExternalLink, FileText, FolderOpen, Lock, Plus, Sparkles, Star, Trash2, Wand2
+  BookOpenCheck, CalendarClock, Download, ExternalLink, FileText, FolderOpen, HeartHandshake, Lock, Plus, Sparkles, Star, Trash2, Users, Wand2
 } from 'lucide-react'
 import { call, useDesk } from '../lib/desk'
 import { Avatar, Drawer, Empty, Modal, Spinner, daysAgo, fmtDate } from '../components/ui'
-import { APP_STATUSES, type AppStatus, type Application, type InterviewRound, type Question } from '../../../shared/types'
+import { APP_STATUSES, localDay, type AppStatus, type Application, type CvVersion, type InterviewRound, type Question } from '../../../shared/types'
+
+const CLOSE_REASONS = ['Rejected', 'No response', 'Role closed or on hold', 'I withdrew', 'I declined the offer']
 
 const COLORS: Record<AppStatus, string> = {
   saved: 'var(--muted)', applied: 'var(--blue)', screening: 'var(--violet)', interviewing: 'var(--gold)', offer: 'var(--good)', closed: '#56607a'
@@ -141,9 +143,14 @@ function AppDrawer({ app, onClose, onSave }: { app: Application; onClose: () => 
     if (!d.cvVersionId) { toast('Pick the CV version you are sending first.'); return }
     await persist()
     setBusy('lock')
-    const saved = await run(() => call<Application>('apps:lockPack', app.id, d.cvVersionId, d.coverLetter), 'Application pack saved to your Documents folder.')
-    if (saved) {
-      patch((s) => ({ ...s, applications: s.applications.map((a) => (a.id === saved.id ? saved : a)), cvs: s.cvs.map((c) => (c.id === saved.cvVersionId ? { ...c, locked: true } : c)) }))
+    const r = await run(() => call<{ app: Application; cv: CvVersion }>('apps:lockPack', app.id, d.cvVersionId, d.coverLetter), 'Application pack saved — this exact CV is frozen for this application.')
+    if (r) {
+      const { app: saved, cv } = r
+      patch((s) => ({
+        ...s,
+        applications: s.applications.map((a) => (a.id === saved.id ? saved : a)),
+        cvs: s.cvs.some((c) => c.id === cv.id) ? s.cvs.map((c) => (c.id === cv.id ? cv : c)) : [cv, ...s.cvs]
+      }))
       setD(saved)
     }
     setBusy(null)
@@ -161,7 +168,19 @@ function AppDrawer({ app, onClose, onSave }: { app: Application; onClose: () => 
     patch((s) => ({ ...s, applications: s.applications.filter((a) => a.id !== app.id) }))
     onClose()
   }
-  const addRound = (): void => set({ rounds: [...(d.rounds || []), { id: crypto.randomUUID(), date: new Date().toISOString().slice(0, 10), stage: '', interviewers: '', notes: '' }] })
+  const fetchJd = async (): Promise<void> => {
+    await persist()
+    setBusy('jd')
+    const saved = await run(() => call<Application>('apps:fetchJd', app.id), 'Job description pulled in.')
+    if (saved) { patch((s) => ({ ...s, applications: s.applications.map((a) => (a.id === saved.id ? saved : a)) })); setD(saved) }
+    setBusy(null)
+  }
+  const talkItThrough = async (): Promise<void> => {
+    await persist()
+    const how = d.closedReason && d.closedReason !== 'Rejected' ? `closed (${d.closedReason.toLowerCase()})` : 'a rejection'
+    go('coach', `The ${d.role} role at ${d.company} ended in ${how}.${d.rounds?.length ? ` I got through ${d.rounds.length} round${d.rounds.length === 1 ? '' : 's'}.` : ''} Help me process it — what can I learn, and what should I do next?`)
+  }
+  const addRound = (): void => set({ rounds: [...(d.rounds || []), { id: crypto.randomUUID(), date: localDay(), stage: '', interviewers: '', notes: '' }] })
   const setRound = (id: string, r: Partial<InterviewRound>): void => set({ rounds: d.rounds.map((x) => (x.id === id ? { ...x, ...r } : x)) })
 
   return (
@@ -187,16 +206,34 @@ function AppDrawer({ app, onClose, onSave }: { app: Application; onClose: () => 
         </div>
       </div>
 
+      {d.status === 'closed' && (
+        <div className="card tight" style={{ marginBottom: 14, borderColor: 'rgba(183,148,246,0.35)' }}>
+          <div className="row wrap">
+            <label className="field grow" style={{ minWidth: 220 }}>How did it end?
+              <select value={d.closedReason || ''} onChange={(e) => set({ closedReason: e.target.value || undefined })}>
+                <option value="">Choose…</option>
+                {CLOSE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+            {state.hasKey && <button className="btn sm" style={{ alignSelf: 'flex-end' }} onClick={talkItThrough}><HeartHandshake size={14} /> Talk it through with your coach</button>}
+          </div>
+          {(d.closedReason === 'Rejected' || d.closedReason === 'No response') && (
+            <div className="small muted" style={{ marginTop: 8 }}>This one stings — and it isn’t a verdict on you. Log what you learned in the rounds below; it makes the next one easier.</div>
+          )}
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-title"><Lock size={16} color="var(--gold)" /> What you send</div>
         <div className="row">
           <select value={d.cvVersionId || ''} onChange={(e) => set({ cvVersionId: e.target.value || undefined })}>
             <option value="">Choose the CV version for this application…</option>
-            {cvs.map((c) => <option key={c.id} value={c.id}>{c.locked ? '🔒 ' : ''}{c.name} ({c.kind})</option>)}
+            {cvs.filter((c) => !c.locked || c.applicationId === app.id).map((c) => <option key={c.id} value={c.id}>{c.locked ? '🔒 ' : ''}{c.name} ({c.locked ? 'sent' : c.kind})</option>)}
           </select>
           <button className="btn sm" onClick={async () => { await persist(); go('cvs', app.id) }}><Wand2 size={14} /> Tailor a CV</button>
         </div>
-        {chosenCv?.locked && <div className="small" style={{ color: 'var(--good)', marginTop: 8 }}>This version is locked — it was sent to an employer.</div>}
+        {chosenCv?.locked && <div className="small" style={{ color: 'var(--good)', marginTop: 8 }}>This is the frozen copy that went to {app.company}{chosenCv.lockedAt ? ` on ${fmtDate(chosenCv.lockedAt)}` : ''}.</div>}
+        {chosenCv && !chosenCv.locked && chosenCv.kind !== 'tailored' && <div className="small muted" style={{ marginTop: 8 }}>Saving the pack freezes a copy of this CV for {app.company}; the original stays editable.</div>}
         <label className="field" style={{ marginTop: 12 }}>Cover letter
           <textarea rows={d.coverLetter ? 8 : 3} value={d.coverLetter || ''} onChange={(e) => set({ coverLetter: e.target.value })} placeholder="Optional. Generate one from your CV and the job description, then edit." />
         </label>
@@ -208,7 +245,7 @@ function AppDrawer({ app, onClose, onSave }: { app: Application; onClose: () => 
           <div className="small muted" style={{ marginTop: 10 }}>
             Saved {fmtDate(d.appliedAt)}: {d.appliedFiles.map((f) => f.split(/[\\/]/).pop()).join(' · ')}
           </div>
-        ) : <div className="small muted" style={{ marginTop: 10 }}>Saves the CV (.docx + .pdf), cover letter and job description into Documents › JobRadar Desk › Applications, and locks that CV version.</div>}
+        ) : <div className="small muted" style={{ marginTop: 10 }}>Saves the CV (.docx + .pdf), cover letter and job description into Documents › JobRadar Desk › Applications, and freezes the exact CV version this company received.</div>}
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
@@ -217,6 +254,7 @@ function AppDrawer({ app, onClose, onSave }: { app: Application; onClose: () => 
         <div className="row wrap">
           <button className="btn sm primary" onClick={genQuestions} disabled={!!busy || !state.hasKey}>{busy === 'prep' ? <Spinner size={14} /> : <Sparkles size={14} />} {jobQs.length ? 'Generate more questions' : 'Predict their questions'}</button>
           {jobQs.length > 0 && <button className="btn sm" onClick={() => go('prep', app.id)}>Open these questions</button>}
+          <button className="btn sm gold" onClick={async () => { await persist(); go('practice', `mock:${app.id}`) }}><Users size={14} /> Sit a mock interview</button>
         </div>
       </div>
 
@@ -226,7 +264,13 @@ function AppDrawer({ app, onClose, onSave }: { app: Application; onClose: () => 
         <label className="field">Location<input value={d.location || ''} onChange={(e) => set({ location: e.target.value })} /></label>
         <label className="field">Compensation notes<input value={d.compensation || ''} onChange={(e) => set({ compensation: e.target.value })} placeholder="e.g. ₹85L fixed + 40% variable" /></label>
       </div>
-      <label className="field" style={{ marginBottom: 12 }}>Job description<textarea rows={6} value={d.jd || ''} onChange={(e) => set({ jd: e.target.value })} placeholder="Paste the full job description" /></label>
+      <label className="field" style={{ marginBottom: 12 }}>
+        <span className="row between">Job description
+          {d.url && <button className="btn sm ghost" style={{ padding: '2px 6px' }} onClick={(e) => { e.preventDefault(); fetchJd() }} disabled={!!busy}>
+            {busy === 'jd' ? <Spinner size={13} /> : <Download size={13} />} {d.jd?.trim() ? 'Re-fetch from the job link' : 'Fetch from the job link'}</button>}
+        </span>
+        <textarea rows={6} value={d.jd || ''} onChange={(e) => set({ jd: e.target.value })} placeholder={d.url ? 'Fetch it from the job link above, or paste it here' : 'Paste the full job description'} />
+      </label>
       <label className="field" style={{ marginBottom: 12 }}>Contacts<textarea rows={2} value={d.contacts || ''} onChange={(e) => set({ contacts: e.target.value })} placeholder="Recruiter, hiring manager, referrals…" /></label>
       <label className="field" style={{ marginBottom: 14 }}>Notes<textarea rows={3} value={d.notes || ''} onChange={(e) => set({ notes: e.target.value })} /></label>
 

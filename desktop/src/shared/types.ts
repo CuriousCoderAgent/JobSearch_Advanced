@@ -2,11 +2,19 @@
 
 export type Track = 'ic' | 'leader'
 
+// Calendar day in the PC's own time zone. toISOString() is UTC, which in India
+// files anything done before 5:30am under the previous day.
+export function localDay(d: Date = new Date()): string {
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 export const ROLE_FOCUS = [
   'Enterprise Account Director',
   'Head/Director/VP Enterprise Sales',
   'National/Regional Sales Head',
-  'Country Manager / Business Head'
+  'Country Manager / Business Head',
+  'Partnerships & Alliances Lead'
 ] as const
 export type RoleFocus = (typeof ROLE_FOCUS)[number]
 
@@ -29,7 +37,11 @@ export interface Settings {
   includeKeywords: string[]
   excludeKeywords: string[]
   indiaOnly: boolean
+  autoSweep: boolean
   lastSweepAt?: string
+  // Bumped when defaults (keywords, starter questions) change, so existing
+  // installs pick up the new ones without losing anything they customised.
+  dataVersion?: number
 }
 
 export type SourceType =
@@ -190,6 +202,73 @@ export interface DeliveryMetrics {
   likelyFilledPauses: number
   pitchVariationSemitones: number | null
   trailingOffRate: number | null
+  // Tone signals (added later; absent on older attempts).
+  airtimePct?: number
+  startLatencySec?: number
+  uptalkRate?: number | null
+  energyDropPct?: number | null
+  paceShiftWpm?: number | null
+}
+
+export interface PresenceRead {
+  comesAcrossAs: string[]
+  nerves: 'calm' | 'some' | 'high'
+  energy: 'flat' | 'steady' | 'animated'
+  read: string
+  fix: string
+}
+
+// ---------- Mock interviews ----------
+// A full panel run: several questions back to back, optional follow-ups, and
+// one debrief at the end instead of coaching after every answer.
+
+export interface MockTurn {
+  id: string
+  kind: 'main' | 'followup'
+  questionId?: string
+  question: string
+  at: string
+  mediaFile?: string
+  frameFile?: string
+  transcript: string
+  metrics: DeliveryMetrics
+}
+
+export type MockDecision = 'strong-yes' | 'yes' | 'lean-no' | 'no'
+
+export interface MockAnswerReview {
+  turn: number
+  score: number
+  verdict: string
+  bestLine: string
+  fix: string
+}
+
+export interface MockDebrief {
+  decision: MockDecision
+  overall: number
+  headline: string
+  summary: string
+  answers: MockAnswerReview[]
+  strengths: string[]
+  themes: string[]
+  presence: PresenceRead & { arc: string }
+  plan: string[]
+  progress?: string
+  belief: string
+  at: string
+}
+
+export interface MockSession {
+  id: string
+  createdAt: string
+  applicationId?: string
+  label: string
+  mode: 'audio' | 'video'
+  followUps: boolean
+  planned: { questionId: string; text: string }[]
+  turns: MockTurn[]
+  debrief?: MockDebrief
 }
 
 export interface PracticeFeedback {
@@ -208,6 +287,9 @@ export interface PracticeFeedback {
   fixes: { issue: string; evidence: string; fix: string }[]
   powerAnswer: string
   drill: string
+  presence?: PresenceRead
+  progress?: string
+  belief?: string
 }
 
 export interface PracticeAttempt {
@@ -246,6 +328,27 @@ export interface DailyBrief {
   headline: string
   focus: string[]
   pepTalk: string
+  moodAware?: boolean
+}
+
+export interface MoodEntry {
+  day: string
+  score: 1 | 2 | 3 | 4 | 5
+  note?: string
+  at: string
+}
+
+export interface Win {
+  id: string
+  at: string
+  text: string
+  auto: boolean
+}
+
+export interface CoachMemory {
+  id: string
+  text: string
+  at: string
 }
 
 export interface SweepProgress {
@@ -254,6 +357,7 @@ export interface SweepProgress {
   total: number
   current?: string
   newJobs?: number
+  highlights?: string[]
   error?: string
 }
 
@@ -273,9 +377,14 @@ export interface BootstrapState {
   cvs: CvVersion[]
   questions: Question[]
   practice: PracticeAttempt[]
+  mocks: MockSession[]
   usage: UsageSummary
   brief: DailyBrief | null
   chat: ChatMessage[]
+  moods: MoodEntry[]
+  wins: Win[]
+  memory: CoachMemory[]
+  today: string
   streak: number
   week: { applications: number; practice: number }
   deskRoot: string

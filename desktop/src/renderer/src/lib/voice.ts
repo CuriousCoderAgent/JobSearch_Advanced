@@ -77,12 +77,22 @@ function pitchOf(a: Float32Array, start: number, len: number): number | null {
   let energy = 0
   for (let i = 0; i < len; i++) energy += a[start + i] * a[start + i]
   if (energy < 1e-4) return null
+  // Energy of the lagged window, slid along as the lag grows. Normalising by
+  // both windows stops a word onset (quiet frame, loud lag) from reading as a
+  // near-perfect match at the longest lag — an octave-low false pitch.
+  let lagEnergy = 0
+  for (let i = 0; i < len; i++) lagEnergy += a[start + minLag + i] * a[start + minLag + i]
   let bestLag = -1
   let best = 0
   for (let lag = minLag; lag <= maxLag; lag++) {
+    if (lag > minLag) {
+      const out = a[start + lag - 1]
+      const inn = a[start + lag + len - 1]
+      lagEnergy += inn * inn - out * out
+    }
     let s = 0
     for (let i = 0; i < len; i++) s += a[start + i] * a[start + i + lag]
-    const r = s / energy
+    const r = s / Math.sqrt(energy * Math.max(lagEnergy, 1e-9))
     if (r > best) { best = r; bestLag = lag }
   }
   return best > 0.45 && bestLag > 0 ? SR / bestLag : null
@@ -129,12 +139,20 @@ export function analyze(audio: Float32Array, text: string, words: WordStamp[]): 
   }
 
   // Pitch variation in semitones across voiced frames (monotone < ~1.5).
+  const pitchAt: (number | null)[] = new Array(n).fill(null)
   const pitches: number[] = []
   for (let i = 0; i < n; i += 2) {
     if (!voiced[i]) continue
     const p = pitchOf(audio, i * frame, 640)
-    if (p) pitches.push(p)
+    if (p) { pitches.push(p); pitchAt[i] = p }
   }
+  const frameOf = (sec: number): number => Math.min(n, Math.max(0, Math.floor((sec * SR) / frame)))
+  const pitchesIn = (fromSec: number, toSec: number): number[] => {
+    const out: number[] = []
+    for (let i = frameOf(fromSec); i < frameOf(toSec); i++) if (pitchAt[i]) out.push(pitchAt[i]!)
+    return out
+  }
+  const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
   let pitchVariationSemitones: number | null = null
   if (pitches.length > 30) {
     const med = [...pitches].sort((a, b) => a - b)[Math.floor(pitches.length / 2)]
@@ -151,8 +169,12 @@ export function analyze(audio: Float32Array, text: string, words: WordStamp[]): 
     for (let i = a; i < b && i < n; i++) s += rms[i]
     return s / (b - a)
   }
+  // Uptalk: a statement whose last word rises 2+ semitones above the pitch of
+  // the rest of the sentence sounds like a question — it reads as unsure.
   let sentences = 0
   let trailing = 0
+  let statements = 0
+  let uptalk = 0
   let sentenceStart = 0
   for (let i = 0; i < ws.length; i++) {
     if (/[.?!]$/.test(ws[i].text) && i - sentenceStart >= 3) {
@@ -160,8 +182,40 @@ export function analyze(audio: Float32Array, text: string, words: WordStamp[]): 
       const avg = body.reduce((s, w) => s + energyOf(w), 0) / body.length
       sentences++
       if (energyOf(ws[i]) < avg * 0.55) trailing++
+      if (!ws[i].text.endsWith('?')) {
+        const bodyPitch = pitchesIn(body[0].start, body[body.length - 1].end)
+        const last = ws[i]
+        const endPitch = pitchesIn(last.start + (last.end - last.start) * 0.4, last.end)
+        if (bodyPitch.length >= 5 && endPitch.length >= 1) {
+          statements++
+          if (12 * Math.log2(median(endPitch) / median(bodyPitch)) >= 2) uptalk++
+        }
+      }
       sentenceStart = i + 1
     }
+  }
+
+  // Energy over the answer: does the voice fade in the last third? And does
+  // the pace run away in the second half (a common sign of nerves)?
+  const voicedIdx = voiced.flatMap((v, i) => (v ? [i] : []))
+  let energyDropPct: number | null = null
+  if (voicedIdx.length && (voicedIdx[voicedIdx.length - 1] - voicedIdx[0]) * 0.02 >= 12) {
+    const a = voicedIdx[0]
+    const third = (voicedIdx[voicedIdx.length - 1] - a) / 3
+    const meanIn = (from: number, to: number): number => {
+      const xs = voicedIdx.filter((i) => i >= from && i < to).map((i) => rms[i])
+      return xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0
+    }
+    const first = meanIn(a, a + third)
+    const lastThird = meanIn(a + 2 * third, a + 3 * third + 1)
+    if (first > 0) energyDropPct = Math.round(((first - lastThird) / first) * 100)
+  }
+  let paceShiftWpm: number | null = null
+  if (ws.length > 20 && span >= 30) {
+    const mid = ws[0].start + span / 2
+    const firstHalf = ws.filter((w) => w.start < mid).length
+    const secondHalf = ws.length - firstHalf
+    paceShiftWpm = Math.round((secondHalf - firstHalf) / (span / 2 / 60))
   }
 
   return {
@@ -177,6 +231,11 @@ export function analyze(audio: Float32Array, text: string, words: WordStamp[]): 
     hedges,
     likelyFilledPauses,
     pitchVariationSemitones,
-    trailingOffRate: sentences >= 3 ? Math.round((trailing / sentences) * 100) / 100 : null
+    trailingOffRate: sentences >= 3 ? Math.round((trailing / sentences) * 100) / 100 : null,
+    airtimePct: audio.length ? Math.round((speakingSec / (audio.length / SR)) * 100) : 0,
+    startLatencySec: ws.length ? Math.round(ws[0].start * 10) / 10 : undefined,
+    uptalkRate: statements >= 3 ? Math.round((uptalk / statements) * 100) / 100 : null,
+    energyDropPct,
+    paceShiftWpm
   }
 }

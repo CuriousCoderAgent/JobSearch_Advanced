@@ -1,6 +1,15 @@
 # JobRadar Desk
 
-A Windows desktop app for running a senior sales job switch end to end: new openings at target companies, an application tracker, a CV library with per-job tailoring, an interview question bank, spoken/video answer practice with coaching, and a coach chat that knows the whole pipeline.
+A Windows desktop app for running a senior enterprise-sales move into an AI-first or tech-led company, end to end: new openings at target companies, an application tracker, a CV library with per-job tailoring, an interview question bank, spoken/video answer practice with coaching, and a coach who knows the whole pipeline and stays in your corner.
+
+## What it does
+
+- **Jobs radar** — watches your target companies' own job feeds (one-click lists of AI-first companies: OpenAI, Anthropic, Sarvam AI, Cohere, Glean…), sweeps by itself every 12 hours while open, and sends a Windows notification for new matches. Tracking a role pulls its full job description automatically.
+- **Applications** — a kanban pipeline. "Save application pack" freezes the exact CV sent to that company (your master stays editable) and files the CV, cover letter and JD under `Documents\JobRadar Desk\Applications`, with a `CV register.csv` index of what went where. Reminders the day before any dated next step.
+- **CV Studio** — master, drafts, tailored and sent versions; bulk import of old versions; a "Sent register" showing which CV each employer has.
+- **Interview prep & practice** — a question bank including AI-company GTM questions, model answers and critiques, and recorded practice scored on structure, substance, presence and delivery. Tone analysis on the PC (pace, fillers, hedges, airtime, uptalk, energy fade, pace drift, vocal variety) feeds a "how you came across" read, and each attempt is compared with your earlier ones.
+- **Mock interviews** — a full panel, back to back: 3, 5 or 7 questions picked for the role (opener, the company's predicted questions, AI-GTM questions, a past weak spot, a closer), read aloud, with the panel asking follow-ups on what you actually said. One debrief at the end: the panel's verdict, a score and fix for every answer, the patterns across answers, how your composure held from first answer to last, and a plan for the next one. Recordings stay under `Documents\JobRadar Desk\Practice Recordings\Mock interviews`.
+- **Coach** — a daily mood check-in shapes the morning brief; wins are logged as you make progress and brought up on hard days; the chat coach keeps notes it remembers across sessions (visible and deletable on the Coach page).
 
 ## Install (Windows)
 
@@ -28,6 +37,8 @@ npm run dist:win   # build the NSIS installer into release/ (run on Windows or i
 ```
 
 Pushing changes under `desktop/` runs `.github/workflows/desktop-windows.yml`, which builds the installer on `windows-latest` and publishes it as a GitHub release.
+
+To try a build without touching your real data, point it at a throwaway folder: `JOBRADAR_TEST_DIR=C:\temp\jr npm run start` keeps app data and documents under that folder. Existing data is upgraded in place on first launch by `migrate()` in `src/main/ipc.ts` (additive only).
 
 ### Layout
 

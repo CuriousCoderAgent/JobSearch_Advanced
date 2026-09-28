@@ -49,6 +49,30 @@ export function Spinner({ size = 16 }: { size?: number }): React.JSX.Element {
   return <Loader2 size={size} className="spin" />
 }
 
+// Recorded webm files carry no duration, so the seek bar is dead until the
+// browser has scanned to the end once. Nudge it there and back.
+export function fixDuration(e: React.SyntheticEvent<HTMLMediaElement>): void {
+  const m = e.currentTarget
+  if (m.duration !== Infinity) return
+  m.ontimeupdate = () => { m.ontimeupdate = null; m.currentTime = 0 }
+  m.currentTime = 1e101
+}
+
+// Score trend (0–100), oldest to newest, with the 80 "would impress" line.
+export function Sparkline({ values }: { values: number[] }): React.JSX.Element {
+  const w = 100
+  const h = 40
+  const x = (i: number): number => (values.length < 2 ? w / 2 : (i / (values.length - 1)) * w)
+  const y = (v: number): number => h - (Math.max(0, Math.min(100, v)) / 100) * h
+  const pts = values.map((v, i) => `${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(' ')
+  return (
+    <svg className="spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label={`Scores: ${values.join(', ')}`}>
+      <line x1={0} x2={w} y1={y(80)} y2={y(80)} stroke="var(--good)" strokeOpacity={0.35} strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
+      <polyline points={pts} fill="none" stroke="var(--blue)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
 export function Drawer({ onClose, children }: { onClose: () => void; children: ReactNode }): React.JSX.Element {
   useEffect(() => {
     const k = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
