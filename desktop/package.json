@@ -1,7 +1,7 @@
 {
   "name": "jobradar-desk",
   "productName": "JobRadar Desk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Personal job-switch command centre: jobs, applications, CVs and an AI interview coach.",
   "author": "Eshan Gupta",
   "private": true,

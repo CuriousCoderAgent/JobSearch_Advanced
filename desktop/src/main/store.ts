@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
+import { localDay } from '../shared/types'
 
 // Small JSON-file store: one file per collection under userData/data.
 // Writes are atomic (temp file + rename) so a crash never leaves half a file.
@@ -39,4 +40,4 @@ export function update<T>(name: string, fallback: T, fn: (current: T) => T): T {
 
 export const newId = (): string => randomUUID()
 export const nowIso = (): string => new Date().toISOString()
-export const today = (): string => new Date().toISOString().slice(0, 10)
+export const today = (): string => localDay()

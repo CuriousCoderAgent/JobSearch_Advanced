@@ -9,6 +9,24 @@ const B: Track[] = ['ic', 'leader']
 const IC: Track[] = ['ic']
 const L: Track[] = ['leader']
 
+// What AI-first and tech-led companies probe when hiring enterprise sellers.
+// Added in data version 2 — merged into existing question banks once.
+export const AI_GTM_QUESTIONS: Seed[] = [
+  { category: 'AI & tech GTM', tracks: B, text: 'Why AI, and why now? What makes you credible selling AI rather than traditional software?', why: 'Is this a genuine conviction backed by hands-on exposure, or a trend-chaser? They want proof you have used, built with or sold AI already.' },
+  { category: 'AI & tech GTM', tracks: B, text: 'Explain what our product does, and how it works, to a bank CXO in two minutes.', why: 'Can you translate technology into business value without jargon — and without over-promising what the model can do?' },
+  { category: 'AI & tech GTM', tracks: B, text: 'A CIO at a large bank says: “We can’t send customer data to an AI model — RBI, data residency, hallucinations.” How do you respond?', why: 'Handling the real objections in regulated Indian enterprises: data residency and sovereignty, deployment options, security reviews, human-in-the-loop, and evaluation evidence.' },
+  { category: 'AI & tech GTM', tracks: B, text: 'Walk me through how you would take a customer from an AI pilot to a production contract.', why: 'Pilot purgatory is the biggest risk in AI sales. Do you define success criteria, an executive sponsor, a data plan and a commercial path before the pilot starts?' },
+  { category: 'AI & tech GTM', tracks: B, text: 'A customer’s pilot showed weaker accuracy than promised. What do you do?', why: 'Honesty under pressure, working with product and engineering on evals and fixes, resetting expectations while keeping the deal alive.' },
+  { category: 'AI & tech GTM', tracks: B, text: 'How would you price and package a usage-based AI platform for Indian enterprises?', why: 'Commercial fluency beyond seat licences: consumption, commits, credits, predictability for procurement, and margin awareness on compute.' },
+  { category: 'AI & tech GTM', tracks: B, text: 'Build or buy? A customer’s IT team wants to build on open-source models themselves. How do you win?', why: 'Competing with “we’ll do it ourselves” — total cost, time-to-value, talent, maintenance and risk — without dismissing their team.' },
+  { category: 'AI & tech GTM', tracks: B, text: 'How do you work with solution engineers, forward-deployed engineers and researchers to win a deal?', why: 'AI deals are won by a pod. Do you orchestrate technical teams well, and know when to put them in front of the customer?' },
+  { category: 'AI & tech GTM', tracks: B, text: 'Which AI products do you use yourself, and what have you built or tried with them?', why: 'Hands-on curiosity. Sellers who use the tools daily sell them more credibly — they will probe for specifics.' },
+  { category: 'AI & tech GTM', tracks: B, text: 'How would you build an Indian GSI and SI partner motion for an AI platform?', why: 'Route-to-market through Infosys/TCS/Wipro/Accenture and boutique SIs: incentives, co-selling, certification and avoiding channel conflict.' },
+  { category: 'AI & tech GTM', tracks: L, text: 'We are early in India. How would you build the first enterprise book of business from zero?', why: 'Zero-to-one execution: picking beachhead verticals and lighthouse logos, the first hires, and what you would not do in year one.' },
+  { category: 'AI & tech GTM', tracks: B, text: 'Tell me about the most technical product you have sold. How deep did you go?', why: 'Technical depth and learning speed — can you hold a credible conversation with a CTO and know when to bring in experts?' },
+  { category: 'AI & tech GTM', tracks: B, text: 'This is a startup — ambiguity, little process, fast change. Why will you thrive here after a large company?', why: 'Culture fit for a fast AI company: ownership without a support structure, comfort with ambiguity, and evidence you have done it before.' }
+]
+
 export const SEED_QUESTIONS: Seed[] = [
   // Story & motivation
   { category: 'Story & motivation', tracks: B, text: 'Walk me through your career so far.', why: 'Can you tell a crisp 2-minute story with a clear through-line to this role, instead of reading out your CV?' },
@@ -83,5 +101,6 @@ export const SEED_QUESTIONS: Seed[] = [
   { category: 'Closing & logistics', tracks: B, text: 'What questions do you have for us?', why: 'Curiosity, depth of preparation, and how you evaluate them — this is part of the interview.' },
   { category: 'Closing & logistics', tracks: B, text: 'What are your compensation expectations?', why: 'Negotiation poise: anchoring on value and range without underselling or pricing yourself out.' },
   { category: 'Closing & logistics', tracks: B, text: 'Are you interviewing elsewhere, and what is your notice period?', why: 'Your market value and how hard they need to move, handled honestly and confidently.' },
-  { category: 'Closing & logistics', tracks: B, text: 'Is there anything we haven’t covered that you want us to know?', why: 'Your last chance to land your single strongest differentiator.' }
+  { category: 'Closing & logistics', tracks: B, text: 'Is there anything we haven’t covered that you want us to know?', why: 'Your last chance to land your single strongest differentiator.' },
+  ...AI_GTM_QUESTIONS
 ]

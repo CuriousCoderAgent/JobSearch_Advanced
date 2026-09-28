@@ -7,17 +7,28 @@ import { bulkParse } from '../ai'
 import { discoverSource } from './discover'
 import { fetchFromSource, getText, type RawJob } from './adapters'
 
+// AI-first companies title GTM roles differently ("Engagement Principal",
+// "Client Partner", "Head of India"); these were added in data version 2 and
+// are merged into existing installs' keyword lists once.
+export const INCLUDE_ADDED_V2 = [
+  'engagement manager', 'engagement principal', 'engagement lead', 'client partner', 'client director',
+  'account lead', 'strategic partnerships', 'gsi', 'business lead', 'india lead', 'head of india', 'market lead',
+  'platform sales', 'solution sales', 'solutions sales', 'solution specialist', 'solutions specialist', 'deal'
+]
 export const DEFAULT_INCLUDE = [
   'sales', 'account director', 'account executive', 'account manager', 'business development',
   'country manager', 'country head', 'general manager', 'business head', 'revenue', 'go-to-market', 'gtm',
   'commercial', 'key account', 'strategic accounts', 'enterprise account', 'enterprise sales', 'enterprise business',
   'alliances', 'partnerships',
-  'regional head', 'zonal head', 'cluster head', 'channel'
+  'regional head', 'zonal head', 'cluster head', 'channel',
+  ...INCLUDE_ADDED_V2
 ]
+export const EXCLUDE_ADDED_V2 = ['sourcer', 'talent acquisition', 'talent partner']
 export const DEFAULT_EXCLUDE = [
   'intern', 'internship', 'fresher', 'trainee', 'apprentice', 'sales development representative',
   'business development representative', 'sdr', 'bdr', 'sales associate', 'telecaller',
-  'engineer', 'engineering', 'architect', 'developer', 'scientist', 'designer', 'recruiter', 'analyst', 'operations'
+  'engineer', 'engineering', 'architect', 'developer', 'scientist', 'designer', 'recruiter', 'analyst', 'operations',
+  ...EXCLUDE_ADDED_V2
 ]
 const INDIA_RE = /\b(india|bangalore|bengaluru|mumbai|bombay|delhi|ncr|gurgaon|gurugram|hyderabad|pune|chennai|noida|kolkata|ahmedabad|kochi|jaipur|chandigarh)\b/i
 // "Remote" on its own counts; "Remote - California" does not.
@@ -43,8 +54,9 @@ function searchQueries(profile: Profile): string[] {
     if (r.startsWith('Head/Director/VP')) q.add('head of sales')
     if (r.startsWith('National/Regional')) q.add('regional sales')
     if (r.startsWith('Country Manager')) q.add('country manager')
+    if (r.startsWith('Partnerships')) q.add('partnerships')
   }
-  return [...q].slice(0, 5)
+  return [...q].slice(0, 7)
 }
 
 async function readCareersPage(company: Company, url: string): Promise<{ jobs: RawJob[] | null; hash?: string; unchanged?: boolean }> {
@@ -95,9 +107,11 @@ async function judgeRelevance(candidates: Job[], profile: Profile): Promise<Map<
     const out = await bulkParse('jobs: judge relevance', {
       system:
         'You screen job listings for one senior candidate. Keep a role only if they would plausibly apply: right function ' +
-        '(enterprise / B2B sales and sales leadership, including senior individual-contributor account roles) and right ' +
-        'seniority (director-level individual contributor or above, or a leadership role). Be generous with title wording, ' +
-        'strict about function and level. Give a short reason for each kept role.',
+        '(enterprise / B2B sales and sales leadership, including senior individual-contributor account roles, strategic ' +
+        'partnerships and alliances, and customer-facing commercial roles at AI companies such as engagement managers or ' +
+        'principals and solution specialists who own revenue) and right seniority (director-level individual contributor ' +
+        'or above, or a leadership role). Be generous with title wording, strict about function and level. Give a short ' +
+        'reason for each kept role.',
       content: `${wants}\n\nListings:\n${listing}`,
       schema,
       maxTokens: 4000
@@ -172,6 +186,17 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
   }
   await Promise.all(Array.from({ length: Math.min(5, companies.length) }, worker))
 
+  // Listings an older keyword list turned away get a second look once the
+  // list has grown to cover them (only happens after keywords change).
+  const fetchedIds = new Set(fresh.map((j) => j.id))
+  for (const j of existing.values()) {
+    if (!fetchedIds.has(j.id) && j.lastSeen === now && j.relevant === false && j.relevanceReason === 'Not a sales role' &&
+      include?.test(j.title) && !j.dismissed) {
+      j.relevant = null
+      fresh.push(j)
+    }
+  }
+
   // Free prefilter first; AI only ever sees brand-new listings that pass it.
   const indiaOnly = settings.indiaOnly !== false
   const toJudge: Job[] = []
@@ -202,7 +227,11 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
   write('jobs', kept)
   write('companies', companies)
   write('settings', { ...read<Settings>('settings', {} as Settings), lastSweepAt: now })
-  const result: SweepProgress = { running: false, done: companies.length, total: companies.length, newJobs: fresh.filter((j) => j.relevant).length, error: progress.error }
+  const matches = fresh.filter((j) => j.relevant)
+  const result: SweepProgress = {
+    running: false, done: companies.length, total: companies.length, newJobs: matches.length, error: progress.error,
+    highlights: matches.slice(0, 3).map((j) => `${j.title} — ${j.company}`)
+  }
   onProgress(result)
   return result
 }

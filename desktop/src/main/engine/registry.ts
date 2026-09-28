@@ -35,7 +35,41 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['druva'], ats('greenhouse', 'druva')],
   [['snowflake'], ats('ashby', 'snowflake')],
   [['meesho'], ats('lever', 'meesho')],
-  [['amazon', 'amazon web services', 'aws'], { type: 'amazon' }]
+  [['amazon', 'amazon web services', 'aws'], { type: 'amazon' }],
+
+  // AI-first companies (verified 2026-09-28).
+  [['openai'], ats('ashby', 'openai')],
+  [['anthropic'], ats('greenhouse', 'anthropic')],
+  [['sarvam', 'sarvam ai', 'sarvamai', 'sarvam.ai'], ats('ashby', 'sarvam')],
+  [['cohere'], ats('ashby', 'cohere')],
+  [['elevenlabs', 'eleven labs'], ats('ashby', 'elevenlabs')],
+  [['perplexity', 'perplexity ai'], ats('ashby', 'perplexity')],
+  [['scale ai', 'scale', 'scaleai'], ats('greenhouse', 'scaleai')],
+  [['glean'], ats('greenhouse', 'gleanwork')],
+  [['observe.ai', 'observe ai', 'observeai'], ats('greenhouse', 'observeai')],
+  [['deepgram'], ats('ashby', 'deepgram')],
+  [['writer', 'writer.com'], ats('ashby', 'writer')],
+  [['harvey', 'harvey ai'], ats('ashby', 'harvey')],
+  [['sierra', 'sierra ai'], ats('ashby', 'sierra')],
+  [['decagon'], ats('ashby', 'decagon')],
+  [['together ai', 'together.ai', 'togetherai'], ats('greenhouse', 'togetherai')],
+  [['coreweave'], ats('greenhouse', 'coreweave')],
+  [['cerebras', 'cerebras systems'], ats('ashby', 'cerebras')],
+  [['langchain'], ats('ashby', 'langchain')],
+
+  // Tech-led platforms with India enterprise teams (verified 2026-09-28).
+  [['datadog'], ats('greenhouse', 'datadog')],
+  [['elastic'], ats('greenhouse', 'elastic')],
+  [['confluent'], ats('ashby', 'confluent')],
+  [['cloudflare'], ats('greenhouse', 'cloudflare')],
+  [['okta'], ats('greenhouse', 'okta')],
+  [['zscaler'], ats('greenhouse', 'zscaler')],
+  [['rubrik'], ats('greenhouse', 'rubrik')],
+  [['twilio'], ats('greenhouse', 'twilio')],
+  [['stripe'], ats('greenhouse', 'stripe')],
+  [['gitlab'], ats('greenhouse', 'gitlab')],
+  [['intercom'], ats('greenhouse', 'intercom')],
+  [['mindtickle'], ats('lever', 'mindtickle')]
 ]
 
 const LOOKUP = new Map<string, Omit<CompanySource, 'detectedAt'>>()

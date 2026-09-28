@@ -86,7 +86,8 @@ export default function Settings() {
             <label className="field">Practice sessions per week<input type="number" min={0} value={s.weeklyPractice} onChange={(e) => setS({ ...s, weeklyPractice: Number(e.target.value) })} /></label>
           </div>
           <label className="check" style={{ marginBottom: 8 }}><input type="checkbox" checked={s.aiMatching} onChange={(e) => setS({ ...s, aiMatching: e.target.checked })} /> Let AI judge seniority & fit of brand-new listings (a fraction of a cent per sweep)</label>
-          <label className="check" style={{ marginBottom: 12 }}><input type="checkbox" checked={s.indiaOnly} onChange={(e) => setS({ ...s, indiaOnly: e.target.checked })} /> Only India-based or remote roles</label>
+          <label className="check" style={{ marginBottom: 8 }}><input type="checkbox" checked={s.indiaOnly} onChange={(e) => setS({ ...s, indiaOnly: e.target.checked })} /> Only India-based or remote roles</label>
+          <label className="check" style={{ marginBottom: 12 }}><input type="checkbox" checked={s.autoSweep} onChange={(e) => setS({ ...s, autoSweep: e.target.checked })} /> Sweep automatically every 12 hours while the app is open, and notify me about new matches and upcoming interviews</label>
           <label className="field" style={{ marginBottom: 12 }}>Title must contain one of <span className="hint">(comma-separated)</span><textarea rows={3} value={inc} onChange={(e) => setInc(e.target.value)} /></label>
           <label className="field">Skip titles containing<textarea rows={2} value={exc} onChange={(e) => setExc(e.target.value)} /></label>
         </div>

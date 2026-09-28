@@ -16,6 +16,12 @@ protocol.registerSchemesAsPrivileged([
 // ever loads the app's own files, so shared memory carries no cross-site risk.
 app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer')
 
+// For testing only: run against a throwaway folder instead of your real data.
+if (process.env['JOBRADAR_TEST_DIR']) {
+  app.setPath('userData', join(process.env['JOBRADAR_TEST_DIR'], 'userData'))
+  app.setPath('documents', join(process.env['JOBRADAR_TEST_DIR'], 'Documents'))
+}
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {

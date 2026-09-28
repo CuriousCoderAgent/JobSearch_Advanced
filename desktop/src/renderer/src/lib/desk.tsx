@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { BootstrapState } from '../../../shared/types'
+import type { Application, BootstrapState, SweepProgress } from '../../../shared/types'
 
 export async function call<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
   const res = await window.desk.invoke(channel, ...args)
@@ -37,6 +37,23 @@ export function DeskProvider({ children }: { children: (ready: boolean) => React
 
   const refresh = useCallback(async () => setState(await call<BootstrapState>('state:get')), [])
   useEffect(() => { refresh() }, [refresh])
+
+  // Things the main process does on its own: a notification click opening a
+  // page, a background sweep finishing, a job description arriving.
+  useEffect(() => {
+    const offs = [
+      onEvent('nav', (p) => {
+        const { page: to, focus: f } = p as { page: Page; focus?: string }
+        setPage(to); setFocus(f ?? null); refresh()
+      }),
+      onEvent('sweep:progress', (p) => { if (!(p as SweepProgress).running) refresh() }),
+      onEvent('app:updated', (a) => {
+        const app = a as Application
+        setState((s) => (s ? { ...s, applications: s.applications.map((x) => (x.id === app.id ? app : x)) } : s))
+      })
+    ]
+    return () => offs.forEach((off) => off())
+  }, [refresh])
 
   const toast = useCallback((msg: string, kind: ToastKind = 'info') => {
     const id = Date.now() + Math.random()

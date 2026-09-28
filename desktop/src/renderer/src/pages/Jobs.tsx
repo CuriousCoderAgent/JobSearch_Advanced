@@ -1,8 +1,48 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, Check, ExternalLink, EyeOff, Plus, Radar, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { Building2, Check, ExternalLink, EyeOff, Plus, Radar, RefreshCw, Search, Sparkles, Trash2 } from 'lucide-react'
 import { call, onEvent, useDesk } from '../lib/desk'
 import { Avatar, Empty, Spinner, daysAgo, fmtDate } from '../components/ui'
+import { STARTER_GROUPS } from '../../../shared/starters'
 import type { Application, Company, SweepProgress } from '../../../shared/types'
+
+// One-click watch lists: AI-first companies and the tech-led platforms that
+// hire senior enterprise sellers in India. All are on free job feeds.
+function Suggestions() {
+  const { state, patch, run } = useDesk()
+  const [busy, setBusy] = useState<string | null>(null)
+  const watched = new Set(state.companies.map((c) => c.name.toLowerCase()))
+  const groups = STARTER_GROUPS.map((g) => ({ ...g, missing: g.names.filter((n) => !watched.has(n.toLowerCase())) })).filter((g) => g.missing.length)
+  if (!groups.length) return null
+  const add = async (names: string[], key: string): Promise<void> => {
+    setBusy(key)
+    const added = await run(() => call<Company[]>('companies:addMany', names), names.length > 1 ? `Watching ${names.length} more companies — they’re checked on the next sweep.` : `Watching ${names[0]}.`)
+    if (added) patch((s) => ({ ...s, companies: [...s.companies, ...added] }))
+    setBusy(null)
+  }
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card-title"><Sparkles size={16} color="var(--gold)" /> Suggested for an AI-led move <span className="sub">all on free job feeds</span></div>
+      <div className="stack" style={{ gap: 12 }}>
+        {groups.map((g) => (
+          <div key={g.label}>
+            <div className="row" style={{ marginBottom: 6 }}>
+              <span className="stat-label">{g.label}</span>
+              <button className="btn sm ghost" style={{ marginLeft: 'auto' }} disabled={!!busy} onClick={() => add(g.missing, g.label)}>
+                {busy === g.label ? <Spinner size={13} /> : <Plus size={13} />} Add all {g.missing.length}</button>
+            </div>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {g.missing.map((n) => (
+                <button key={n} className="pill" style={{ cursor: 'pointer', border: '1px solid var(--line-2)', padding: '5px 11px' }} disabled={!!busy} onClick={() => add([n], n)}>
+                  <Plus size={11} /> {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const SOURCE_LABEL: Record<string, [string, string]> = {
   greenhouse: ['Free feed · Greenhouse', 'good'], lever: ['Free feed · Lever', 'good'], ashby: ['Free feed · Ashby', 'good'],
@@ -12,8 +52,8 @@ const SOURCE_LABEL: Record<string, [string, string]> = {
 }
 
 export default function Jobs() {
-  const { state, patch, refresh, run, toast, go } = useDesk()
-  const [tab, setTab] = useState<'openings' | 'companies'>('openings')
+  const { state, patch, refresh, run, toast, go, focus } = useDesk()
+  const [tab, setTab] = useState<'openings' | 'companies'>(focus === 'starters' || !state.companies.length ? 'companies' : 'openings')
   const [progress, setProgress] = useState<SweepProgress | null>(null)
   const [q, setQ] = useState('')
   const [company, setCompany] = useState('all')
@@ -41,7 +81,7 @@ export default function Jobs() {
   const trackedIds = new Set(state.applications.map((a) => a.jobId).filter(Boolean))
 
   const track = async (id: string): Promise<void> => {
-    const app = await run(() => call<Application>('jobs:track', id), 'Added to Applications as Saved.')
+    const app = await run(() => call<Application>('jobs:track', id), 'Tracked — the job description is being pulled into the application.')
     if (app) patch((s) => ({ ...s, applications: s.applications.some((a) => a.id === app.id) ? s.applications : [app, ...s.applications] }))
   }
   const dismiss = async (id: string): Promise<void> => {
@@ -72,7 +112,8 @@ export default function Jobs() {
           <div className="eyebrow">Jobs radar</div>
           <div className="page-title">New openings at your target companies</div>
           <div className="page-sub">
-            {state.settings.lastSweepAt ? `Last swept ${fmtDate(state.settings.lastSweepAt)} · ` : ''}{state.companies.length} companies watched · {free} on free feeds
+            {state.settings.lastSweepAt ? `Last swept ${fmtDate(state.settings.lastSweepAt)}, ${new Date(state.settings.lastSweepAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })} · ` : ''}
+            {state.companies.length} companies watched · {free} on free feeds{state.settings.autoSweep ? ' · sweeps itself twice a day while the app is open' : ''}
           </div>
         </div>
         <div className="row">
@@ -147,6 +188,7 @@ export default function Jobs() {
               Only companies with fully custom careers pages use AI — and only when that page actually changes.
             </div>
           </div>
+          <Suggestions />
           {state.companies.length ? (
             <div className="list">
               {state.companies.map((c) => {

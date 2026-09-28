@@ -13,14 +13,23 @@ export const COACH_MODEL = 'claude-opus-5'
 export const BULK_MODEL = 'claude-haiku-4-5'
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
-// USD per million tokens (input, output, cache read, cache write).
+// USD per million tokens (input, output, cache read, cache write). Responses
+// can name a dated snapshot ("claude-haiku-4-5-20251001") or a fallback model,
+// so prices are matched by prefix.
 const PRICES: Record<string, [number, number, number, number]> = {
   'claude-opus-5': [5, 25, 0.5, 6.25],
-  'claude-opus-4-8': [5, 25, 0.5, 6.25],
+  'claude-opus-4': [5, 25, 0.5, 6.25],
+  'claude-fable-5': [10, 50, 1, 12.5],
   'claude-sonnet-5': [2, 10, 0.2, 2.5],
+  'claude-sonnet-4': [3, 15, 0.3, 3.75],
   'claude-haiku-4-5': [1, 5, 0.1, 1.25]
 }
 const WEB_SEARCH_USD = 0.01
+
+function priceOf(model: string): [number, number, number, number] {
+  const key = Object.keys(PRICES).sort((a, b) => b.length - a.length).find((k) => model.startsWith(k))
+  return PRICES[key ?? COACH_MODEL]
+}
 
 export class AiError extends Error {}
 
@@ -52,19 +61,21 @@ interface UsageLike {
   server_tool_use?: { web_search_requests?: number } | null
 }
 
+export function costOf(u: Omit<UsageEntry, 'costUsd' | 'at' | 'feature'>): number {
+  const [pin, pout, pcr, pcw] = priceOf(u.model)
+  return (u.inputTokens * pin + u.outputTokens * pout + u.cacheRead * pcr + u.cacheWrite * pcw) / 1e6 + u.webSearches * WEB_SEARCH_USD
+}
+
 function logUsage(feature: string, model: string, usage: UsageLike): void {
-  const [pin, pout, pcr, pcw] = PRICES[model] ?? PRICES[COACH_MODEL]
-  const cacheRead = usage.cache_read_input_tokens ?? 0
-  const cacheWrite = usage.cache_creation_input_tokens ?? 0
-  const webSearches = usage.server_tool_use?.web_search_requests ?? 0
-  const costUsd =
-    (usage.input_tokens * pin + usage.output_tokens * pout + cacheRead * pcr + cacheWrite * pcw) / 1e6 +
-    webSearches * WEB_SEARCH_USD
-  const entry: UsageEntry = {
-    at: nowIso(), feature, model,
-    inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
-    cacheRead, cacheWrite, webSearches, costUsd
+  const counts = {
+    model,
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cacheRead: usage.cache_read_input_tokens ?? 0,
+    cacheWrite: usage.cache_creation_input_tokens ?? 0,
+    webSearches: usage.server_tool_use?.web_search_requests ?? 0
   }
+  const entry: UsageEntry = { at: nowIso(), feature, ...counts, costUsd: costOf(counts) }
   update<UsageEntry[]>('usage', [], (list) => [...list, entry].slice(-5000))
 }
 
@@ -117,31 +128,88 @@ export async function coachParse<S extends z.ZodType>(
   }
 }
 
-// Streaming chat on the coach model. Calls onText for each text delta.
+// A client-side tool the coach can call mid-conversation (e.g. saving a memory).
+export interface CoachTool {
+  name: string
+  description: string
+  inputSchema: Anthropic.Beta.BetaTool.InputSchema
+  validate: z.ZodType
+  run: (input: never) => string | Promise<string>
+}
+
+// Streaming chat on the coach model. Calls onText for each text delta and
+// runs any tools the coach calls, looping until it has finished its reply.
 export async function coachStream(
   feature: string,
-  opts: { system: string; messages: Anthropic.Beta.BetaMessageParam[]; onText: (delta: string) => void }
+  opts: { system: string; messages: Anthropic.Beta.BetaMessageParam[]; onText: (delta: string) => void; tools?: CoachTool[] }
 ): Promise<string> {
   checkBudget()
+  const tools = opts.tools ?? []
+  const toolDefs: Anthropic.Beta.BetaTool[] = tools.map((t) => ({
+    name: t.name, description: t.description, input_schema: t.inputSchema, eager_input_streaming: true
+  }))
+  const messages = [...opts.messages]
+  let reply = ''
+  let jsonRetries = 0
   try {
-    const stream = client().beta.messages.stream({
-      model: COACH_MODEL,
-      max_tokens: 32000,
-      betas: [FALLBACK_BETA],
-      fallbacks: 'default',
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
-      system: cachedSystem(opts.system),
-      messages: opts.messages
-    })
-    stream.on('text', (delta) => opts.onText(delta))
-    const final = await stream.finalMessage()
-    logUsage(feature, final.model, final.usage)
-    if (final.stop_reason === 'refusal') throw new AiError('Claude declined to answer that. Try rephrasing.')
-    return final.content
-      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
+    for (let turn = 0; turn < 8; turn++) {
+      const stream = client().beta.messages.stream({
+        model: COACH_MODEL,
+        max_tokens: 32000,
+        betas: [FALLBACK_BETA],
+        fallbacks: 'default',
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'medium' },
+        system: cachedSystem(opts.system),
+        ...(toolDefs.length ? { tools: toolDefs } : {}),
+        messages
+      })
+      // Text after a tool call continues the same reply on a new paragraph.
+      let first = true
+      stream.on('text', (delta) => {
+        if (first && reply) opts.onText('\n\n')
+        first = false
+        opts.onText(delta)
+      })
+      let final: Anthropic.Beta.BetaMessage
+      try {
+        final = await stream.finalMessage()
+        jsonRetries = 0
+      } catch (err) {
+        // With eager input streaming, an unparseable tool input rejects here;
+        // re-issue that turn a couple of times. API errors go to the user.
+        if (err instanceof Anthropic.APIError || jsonRetries++ >= 2) throw err
+        continue
+      }
+      logUsage(feature, final.model, final.usage)
+      if (final.stop_reason === 'refusal') throw new AiError('Claude declined to answer that. Try rephrasing.')
+      const text = final.content
+        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+      if (text) reply = reply ? `${reply}\n\n${text}` : text
+      if (final.stop_reason === 'pause_turn') { messages.push({ role: 'assistant', content: final.content }); continue }
+      const uses = final.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use')
+      if (final.stop_reason !== 'tool_use' || !uses.length) break
+
+      messages.push({ role: 'assistant', content: final.content })
+      const results: Anthropic.Beta.BetaToolResultBlockParam[] = []
+      for (const use of uses) {
+        const tool = tools.find((t) => t.name === use.name)
+        const parsed = tool?.validate.safeParse(use.input)
+        if (!tool || !parsed?.success) {
+          results.push({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: `Invalid input for ${use.name}.` })
+          continue
+        }
+        try {
+          results.push({ type: 'tool_result', tool_use_id: use.id, content: await tool.run(parsed.data as never) })
+        } catch (e) {
+          results.push({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: (e as Error).message })
+        }
+      }
+      messages.push({ role: 'user', content: results })
+    }
+    return reply
   } catch (err) {
     throw friendly(err)
   }

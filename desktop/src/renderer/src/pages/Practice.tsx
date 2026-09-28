@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, CircleStop, Eye, EyeOff, Mic, RotateCcw, Shuffle, Sparkles, Trash2 } from 'lucide-react'
+import { Camera, CircleStop, Eye, EyeOff, ChartLine, HeartPulse, Mic, RotateCcw, Shuffle, Sparkles, Trash2 } from 'lucide-react'
 import { call, onEvent, useDesk } from '../lib/desk'
 import { analyze, decodeTo16k, transcribe } from '../lib/voice'
-import { Bar, Empty, Markdown, Ring, Spinner, fmtDate, scoreTone } from '../components/ui'
+import { Bar, Empty, Markdown, Ring, Sparkline, Spinner, fmtDate, scoreTone } from '../components/ui'
 import type { PracticeAttempt, Question } from '../../../shared/types'
 
 type Phase = 'idle' | 'recording' | 'processing' | 'done'
@@ -27,6 +27,7 @@ export default function Practice() {
   const chunksRef = useRef<Blob[]>([])
   const framesRef = useRef<string[]>([])
   const timers = useRef<number[]>([])
+  const audioCtxRef = useRef<AudioContext | null>(null)
 
   const q = state.questions.find((x) => x.id === qid)
   const attempts = useMemo(() => state.practice.filter((p) => p.questionId === qid).sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [state.practice, qid])
@@ -35,6 +36,7 @@ export default function Practice() {
   const stopStream = (): void => {
     timers.current.forEach((t) => clearInterval(t)); timers.current = []
     streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null
+    audioCtxRef.current?.close().catch(() => undefined); audioCtxRef.current = null
   }
   useEffect(() => stopStream, [])
   useEffect(() => { setViewId(null); setPhase('idle'); setPeek(false) }, [qid])
@@ -60,6 +62,7 @@ export default function Practice() {
 
       // Live level meter.
       const ctx = new AudioContext()
+      audioCtxRef.current = ctx
       const an = ctx.createAnalyser(); an.fftSize = 512
       ctx.createMediaStreamSource(stream).connect(an)
       const data = new Uint8Array(an.frequencyBinCount)
@@ -218,6 +221,8 @@ export default function Practice() {
             )}
           </div>
 
+          <ProgressCard attempts={attempts} all={state.practice} />
+
           {attempts.length > 0 && (
             <div className="card">
               <div className="card-title">Your attempts at this question <span className="sub">{attempts.length}</span></div>
@@ -295,7 +300,23 @@ function Feedback({ a, mediaUrl, onRetry, onDelete, onAgain, hasKey }: { a: Prac
             ))}
           </div>
         )}
+        {f?.progress && <div className="small" style={{ marginTop: 14, padding: '9px 12px', borderRadius: 10, background: 'var(--blue-tint)' }}><b style={{ color: 'var(--blue-2)' }}>Since last time: </b>{f.progress}</div>}
       </div>
+
+      {f?.presence && (
+        <div className="card">
+          <div className="card-title"><HeartPulse size={16} color="var(--violet)" /> How you came across</div>
+          <div className="row wrap" style={{ gap: 6, marginBottom: 10 }}>
+            {f.presence.comesAcrossAs.map((w) => <span key={w} className="pill violet" style={{ textTransform: 'capitalize' }}>{w}</span>)}
+            <span className={`pill ${f.presence.nerves === 'calm' ? 'good' : f.presence.nerves === 'some' ? 'gold' : 'bad'}`}>
+              {f.presence.nerves === 'calm' ? 'Calm' : f.presence.nerves === 'some' ? 'Some nerves showing' : 'Nerves took over'}</span>
+            <span className={`pill ${f.presence.energy === 'steady' ? 'good' : f.presence.energy === 'animated' ? 'blue' : 'gold'}`}>
+              {f.presence.energy === 'flat' ? 'Flat energy' : f.presence.energy === 'animated' ? 'Animated' : 'Steady energy'}</span>
+          </div>
+          <div className="small">{f.presence.read}</div>
+          <div className="small" style={{ marginTop: 8 }}><b style={{ color: 'var(--gold-2)' }}>Try: </b>{f.presence.fix}</div>
+        </div>
+      )}
 
       <div className="grid g3">
         <Metric label="Pace" value={`${m.wpm} wpm`} note="130–160 sounds confident" tone={m.wpm >= 125 && m.wpm <= 170 ? 'var(--good)' : 'var(--gold)'} />
@@ -305,6 +326,11 @@ function Feedback({ a, mediaUrl, onRetry, onDelete, onAgain, hasKey }: { a: Prac
         <Metric label="Long pauses" value={`${m.longPauses}`} note={`longest ${m.longestPauseSec}s`} />
         <Metric label="Vocal variety" value={m.pitchVariationSemitones != null ? `${m.pitchVariationSemitones} st` : '—'} note="under 1.5 reads monotone"
           tone={m.pitchVariationSemitones == null ? undefined : m.pitchVariationSemitones >= 1.5 ? 'var(--good)' : 'var(--gold)'} />
+        {m.airtimePct != null && <Metric label="Airtime" value={`${m.airtimePct}%`} note="share spent speaking · aim 65%+" tone={m.airtimePct >= 65 ? 'var(--good)' : 'var(--gold)'} />}
+        {m.uptalkRate != null && <Metric label="Uptalk" value={`${Math.round(m.uptalkRate * 100)}%`} note="statements that rise like questions" tone={m.uptalkRate <= 0.3 ? 'var(--good)' : 'var(--gold)'} />}
+        {m.energyDropPct != null && <Metric label="Energy at the end" value={m.energyDropPct > 0 ? `−${m.energyDropPct}%` : `+${-m.energyDropPct}%`} note="finish as strong as you start" tone={m.energyDropPct <= 35 ? 'var(--good)' : 'var(--gold)'} />}
+        {m.paceShiftWpm != null && <Metric label="Pace drift" value={`${m.paceShiftWpm > 0 ? '+' : ''}${m.paceShiftWpm} wpm`} note="second half vs first" tone={m.paceShiftWpm <= 25 ? 'var(--good)' : 'var(--gold)'} />}
+        {m.startLatencySec != null && <Metric label="First word" value={`${m.startLatencySec}s`} note="time before you started" tone={m.startLatencySec <= 3 ? 'var(--good)' : 'var(--gold)'} />}
       </div>
 
       {f && (
@@ -331,6 +357,7 @@ function Feedback({ a, mediaUrl, onRetry, onDelete, onAgain, hasKey }: { a: Prac
           </div>
           <div className="card tight" style={{ background: 'var(--gold-tint)', borderColor: 'rgba(245,181,68,0.3)' }}>
             <b style={{ color: 'var(--gold-2)' }}>Drill for next time: </b>{f.drill}
+            {f.belief && <div style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--text-2)' }}>{f.belief}</div>}
           </div>
         </>
       )}
@@ -347,5 +374,33 @@ function Feedback({ a, mediaUrl, onRetry, onDelete, onAgain, hasKey }: { a: Prac
         </div>
       </div>
     </>
+  )
+}
+
+// Are the reps paying off? Overall score across every scored attempt, plus
+// the delivery habits that move fastest with practice.
+function ProgressCard({ attempts, all }: { attempts: PracticeAttempt[]; all: PracticeAttempt[] }) {
+  const scored = all.filter((p) => p.feedback).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  if (scored.length < 2) return null
+  const scores = scored.slice(-20).map((p) => p.feedback!.overall)
+  const avg = (xs: number[]): number => Math.round(xs.reduce((s, v) => s + v, 0) / Math.max(1, xs.length))
+  const early = scored.slice(0, 3)
+  const late = scored.slice(-3)
+  const fpm = (p: PracticeAttempt): number => (p.metrics.durationSec > 0 ? p.metrics.fillerCount / (p.metrics.durationSec / 60) : 0)
+  const fillersThen = early.reduce((s, p) => s + fpm(p), 0) / early.length
+  const fillersNow = late.reduce((s, p) => s + fpm(p), 0) / late.length
+  const mine = attempts.filter((p) => p.feedback).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const delta = avg(late.map((p) => p.feedback!.overall)) - avg(early.map((p) => p.feedback!.overall))
+  return (
+    <div className="card">
+      <div className="card-title"><ChartLine size={16} color="var(--good)" /> Your progress <span className="sub">{scored.length} scored attempts</span></div>
+      <Sparkline values={scores} />
+      <div className="row wrap small" style={{ gap: 18, marginTop: 10 }}>
+        <span>Overall: <b>{avg(early.map((p) => p.feedback!.overall))}</b> → <b style={{ color: scoreTone(avg(late.map((p) => p.feedback!.overall))) }}>{avg(late.map((p) => p.feedback!.overall))}</b>
+          {delta !== 0 && <span className={`pill ${delta > 0 ? 'good' : 'bad'}`} style={{ marginLeft: 6 }}>{delta > 0 ? '+' : ''}{delta}</span>}</span>
+        <span>Fillers/min: <b>{fillersThen.toFixed(1)}</b> → <b>{fillersNow.toFixed(1)}</b></span>
+        {mine.length >= 2 && <span>This question: <b>{mine[0].feedback!.overall}</b> → <b>{mine[mine.length - 1].feedback!.overall}</b></span>}
+      </div>
+    </div>
   )
 }

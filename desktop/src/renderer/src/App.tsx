@@ -58,7 +58,7 @@ function Shell() {
           <div className="spend">AI this month: <b>{usd(state.usage.total)}</b>{state.settings.monthlyBudgetUsd ? ` / ${usd(state.settings.monthlyBudgetUsd)}` : ''}</div>
         </div>
       </nav>
-      <main className="main">
+      <main className="main" key={page}>
         {page === 'today' && <Today />}
         {page === 'jobs' && <Jobs />}
         {page === 'applications' && <Applications />}

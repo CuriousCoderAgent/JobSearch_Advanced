@@ -3,11 +3,7 @@ import { ArrowRight, Check, FileUp, KeyRound, Plus } from 'lucide-react'
 import { call, useDesk } from '../lib/desk'
 import { Spinner } from '../components/ui'
 import { ROLE_FOCUS, type CvVersion, type Profile, type RoleFocus } from '../../../shared/types'
-
-export const STARTER_COMPANIES = [
-  'Salesforce', 'ServiceNow', 'Oracle', 'Adobe', 'Cisco', 'Freshworks', 'Databricks', 'Snowflake',
-  'MongoDB', 'Workday', 'Nvidia', 'Mastercard', 'Accenture', 'Genpact', 'EY', 'PwC', 'KPMG', 'Amazon', 'BrowserStack', 'Kyndryl'
-]
+import { STARTER_GROUPS } from '../../../shared/starters'
 
 export default function Onboarding() {
   const { state, refresh, run, toast } = useDesk()
@@ -42,7 +38,7 @@ export default function Onboarding() {
     setBusy(true)
     await run(async () => {
       await call('profile:save', { ...profile, masterCvId: profile.masterCvId || cv?.id })
-      for (const name of picked) { try { await call('companies:add', name) } catch { /* already added */ } }
+      if (picked.length) await call('companies:addMany', picked)
       await call('settings:save', { ...state.settings, onboarded: true })
       await refresh()
     })
@@ -93,7 +89,7 @@ export default function Onboarding() {
               </div>
               <label className="field">What you want next, in your words
                 <textarea rows={3} value={profile.targetBrief} onChange={(e) => upd({ targetBrief: e.target.value })}
-                  placeholder="e.g. Enterprise sales leadership in B2B SaaS — Head/VP of Enterprise Sales or Country Manager, owning a number and a team, in Bangalore or Mumbai." />
+                  placeholder="e.g. A senior enterprise sales role at an AI-first company — Account Director or Head of Enterprise Sales, owning BFSI accounts, in Bangalore, Mumbai or Delhi NCR." />
               </label>
               <label className="field">Locations<input value={profile.locations} onChange={(e) => upd({ locations: e.target.value })} /></label>
             </div>
@@ -134,18 +130,26 @@ export default function Onboarding() {
           {step === 3 && (
             <div className="stack" style={{ gap: 16 }}>
               <h3>Which companies should the radar watch?</h3>
-              <p className="muted" style={{ margin: 0 }}>Pick any to start (you can add more later). Most of these are read from free public job feeds, so tracking them costs nothing.</p>
-              <div className="row wrap">
-                {STARTER_COMPANIES.map((c) => {
-                  const on = picked.includes(c)
-                  return (
-                    <button key={c} className={`pill ${on ? 'blue' : ''}`} style={{ cursor: 'pointer', padding: '6px 12px', fontSize: 12.5, border: '1px solid var(--line-2)' }}
-                      onClick={() => setPicked(on ? picked.filter((x) => x !== c) : [...picked, c])}>
-                      {on ? <Check size={12} /> : <Plus size={12} />} {c}
-                    </button>
-                  )
-                })}
-              </div>
+              <p className="muted" style={{ margin: 0 }}>Pick any to start (you can add more later). All of these are read from free public job feeds, so tracking them costs nothing.</p>
+              {STARTER_GROUPS.map((g) => (
+                <div key={g.label}>
+                  <div className="row" style={{ marginBottom: 6 }}>
+                    <span className="stat-label">{g.label}</span>
+                    <button className="btn sm ghost" style={{ marginLeft: 'auto' }} onClick={() => setPicked([...new Set([...picked, ...g.names])])}>Pick all</button>
+                  </div>
+                  <div className="row wrap" style={{ gap: 6 }}>
+                    {g.names.map((c) => {
+                      const on = picked.includes(c)
+                      return (
+                        <button key={c} className={`pill ${on ? 'blue' : ''}`} style={{ cursor: 'pointer', padding: '6px 12px', fontSize: 12.5, border: '1px solid var(--line-2)' }}
+                          onClick={() => setPicked(on ? picked.filter((x) => x !== c) : [...picked, c])}>
+                          {on ? <Check size={12} /> : <Plus size={12} />} {c}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
               <div className="hr" />
               <div>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>Already using the JobRadar web app?</div>

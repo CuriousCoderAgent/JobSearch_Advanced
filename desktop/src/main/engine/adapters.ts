@@ -216,3 +216,130 @@ export async function fetchFromSource(
     default: return null
   }
 }
+
+// ---------- Job descriptions ----------
+// Tracking a role pulls its full description, so CV tailoring and interview
+// prep work from the real JD without copy-paste. Each ATS's own public
+// endpoint first (verified 2026-09-28); a plain page read is the fallback.
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“', ndash: '–', mdash: '—', hellip: '…', bull: '•' }
+export function decodeEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+    if (e[0] === '#') {
+      const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)
+      return Number.isFinite(code) ? String.fromCodePoint(code) : m
+    }
+    return ENTITIES[e.toLowerCase()] ?? m
+  })
+}
+
+export function htmlToText(html: string): string {
+  return decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>|<svg[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '\n- ')
+      .replace(/<h[1-6][^>]*>/gi, '\n\n')
+      .replace(/<\/(p|div|h[1-6]|ul|ol|li|section|article|tr|table)>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+  )
+    .replace(/[ \t\f\v ]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+export interface JdHint { source?: CompanySource; externalId?: string }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Returns clean text for the job at `url`, or null. `generic` is true when it
+// came from reading the page itself (may include navigation noise).
+export async function fetchJobDescription(url: string, hint: JdHint = {}): Promise<{ text: string; generic: boolean } | null> {
+  let u: URL
+  try { u = new URL(url) } catch { return null }
+  const host = u.hostname.toLowerCase()
+  const parts = u.pathname.split('/').filter(Boolean)
+  const ok = (text: string | null | undefined): { text: string; generic: boolean } | null =>
+    text && text.trim().length > 200 ? { text: text.trim().slice(0, 30000), generic: false } : null
+
+  // Greenhouse: board URL, or a company page carrying ?gh_jid= with a known slug.
+  const ghId = u.searchParams.get('gh_jid') ||
+    (/greenhouse\.io$/.test(host) && parts.includes('jobs') ? parts[parts.indexOf('jobs') + 1] : null) ||
+    (hint.source?.type === 'greenhouse' && hint.externalId ? hint.externalId.split('-').pop() : null)
+  const ghSlug = /greenhouse\.io$/.test(host) && parts[0] !== 'embed' ? parts[0] : hint.source?.type === 'greenhouse' ? hint.source.slug : undefined
+  if (ghId && ghSlug) {
+    const j = (await getJson(`https://boards-api.greenhouse.io/v1/boards/${ghSlug}/jobs/${ghId}`)) as any
+    const r = ok(j?.content ? htmlToText(decodeEntities(j.content)) : null)
+    if (r) return r
+  }
+
+  if (host === 'jobs.lever.co' && parts.length >= 2) {
+    const j = (await getJson(`https://api.lever.co/v0/postings/${parts[0]}/${parts[1]}`)) as any
+    const r = ok(j && [
+      j.descriptionPlain,
+      ...(Array.isArray(j.lists) ? j.lists.map((l: any) => `${l.text}\n${htmlToText(String(l.content || '')).replace(/^(?!- )/gm, '- ')}`) : []),
+      j.additionalPlain
+    ].filter(Boolean).join('\n\n'))
+    if (r) return r
+  }
+
+  if (host === 'jobs.ashbyhq.com' && parts.length >= 2) {
+    const j = (await getJson(`https://api.ashbyhq.com/posting-api/job-board/${parts[0]}?includeCompensation=true`)) as any
+    const job = Array.isArray(j?.jobs) ? j.jobs.find((x: any) => x.id === parts[1]) : null
+    const pay = job?.compensation?.compensationTierSummary
+    const r = ok(job && [job.descriptionPlain || htmlToText(String(job.descriptionHtml || '')), pay ? `Compensation: ${pay}` : ''].filter(Boolean).join('\n\n'))
+    if (r) return r
+  }
+
+  if (host === 'jobs.smartrecruiters.com' && parts.length >= 2) {
+    const id = parts[1].match(/^\d+/)?.[0]
+    const j = id ? ((await getJson(`https://api.smartrecruiters.com/v1/companies/${parts[0]}/postings/${id}`)) as any) : null
+    const s = j?.jobAd?.sections
+    const r = ok(s && ['companyDescription', 'jobDescription', 'qualifications', 'additionalInformation']
+      .map((k) => (s[k]?.text ? `${s[k].title || ''}\n${htmlToText(s[k].text)}` : '')).filter(Boolean).join('\n\n'))
+    if (r) return r
+  }
+
+  if (host.endsWith('.myworkdayjobs.com')) {
+    const at = parts.indexOf('job')
+    if (at > 0) {
+      const tenant = host.split('.')[0]
+      const site = parts[at - 1]
+      const path = '/' + parts.slice(at).join('/')
+      const j = (await getJson(`https://${host}/wday/cxs/${tenant}/${site}${path}`)) as any
+      const r = ok(j?.jobPostingInfo?.jobDescription ? htmlToText(j.jobPostingInfo.jobDescription) : null)
+      if (r) return r
+    }
+  }
+
+  if (host.endsWith('.oraclecloud.com')) {
+    const site = parts[parts.indexOf('sites') + 1]
+    const id = parts[parts.indexOf('job') + 1]
+    if (parts.includes('sites') && parts.includes('job') && site && id) {
+      const finder = `ById;Id="${id.replace(/"/g, '')}",siteNumber=${site}`
+      const j = (await getJson(`https://${host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?expand=all&onlyData=true&finder=${encodeURIComponent(finder)}`)) as any
+      const it = j?.items?.[0]
+      const r = ok(it && ['ExternalDescriptionStr', 'ExternalResponsibilitiesStr', 'ExternalQualificationsStr', 'CorporateDescriptionStr']
+        .map((k) => (it[k] ? htmlToText(String(it[k])) : '')).filter(Boolean).join('\n\n'))
+      if (r) return r
+    }
+  }
+
+  // Anything else: read the page. Many careers sites embed a schema.org
+  // JobPosting, which is the cleanest source when present.
+  const html = await getText(url, 15000)
+  if (!html) return null
+  for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const data = JSON.parse(m[1].trim())
+      const items: any[] = Array.isArray(data) ? data : data['@graph'] ? data['@graph'] : [data]
+      const posting = items.find((x) => x && (x['@type'] === 'JobPosting' || (Array.isArray(x['@type']) && x['@type'].includes('JobPosting'))))
+      const r = ok(posting?.description ? htmlToText(decodeEntities(String(posting.description))) : null)
+      if (r) return r
+    } catch { /* not valid JSON — try the next block */ }
+  }
+  const main = html.match(/<main[\s\S]*?<\/main>/i)?.[0] || html.match(/<body[\s\S]*<\/body>/i)?.[0] || html
+  const text = htmlToText(main)
+  return text.length > 400 ? { text: text.slice(0, 30000), generic: true } : null
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
