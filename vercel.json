@@ -1,5 +1,9 @@
 {
   "crons": [
-    { "path": "/api/cron", "schedule": "30 11 * * *" }
-  ]
+    {
+      "path": "/api/cron",
+      "schedule": "30 11 * * *"
+    }
+  ],
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)desktop' ':(exclude).github'"
 }
