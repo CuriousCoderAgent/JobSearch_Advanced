@@ -218,6 +218,59 @@ export interface PresenceRead {
   fix: string
 }
 
+// ---------- Mock interviews ----------
+// A full panel run: several questions back to back, optional follow-ups, and
+// one debrief at the end instead of coaching after every answer.
+
+export interface MockTurn {
+  id: string
+  kind: 'main' | 'followup'
+  questionId?: string
+  question: string
+  at: string
+  mediaFile?: string
+  frameFile?: string
+  transcript: string
+  metrics: DeliveryMetrics
+}
+
+export type MockDecision = 'strong-yes' | 'yes' | 'lean-no' | 'no'
+
+export interface MockAnswerReview {
+  turn: number
+  score: number
+  verdict: string
+  bestLine: string
+  fix: string
+}
+
+export interface MockDebrief {
+  decision: MockDecision
+  overall: number
+  headline: string
+  summary: string
+  answers: MockAnswerReview[]
+  strengths: string[]
+  themes: string[]
+  presence: PresenceRead & { arc: string }
+  plan: string[]
+  progress?: string
+  belief: string
+  at: string
+}
+
+export interface MockSession {
+  id: string
+  createdAt: string
+  applicationId?: string
+  label: string
+  mode: 'audio' | 'video'
+  followUps: boolean
+  planned: { questionId: string; text: string }[]
+  turns: MockTurn[]
+  debrief?: MockDebrief
+}
+
 export interface PracticeFeedback {
   overall: number
   verdict: string
@@ -324,6 +377,7 @@ export interface BootstrapState {
   cvs: CvVersion[]
   questions: Question[]
   practice: PracticeAttempt[]
+  mocks: MockSession[]
   usage: UsageSummary
   brief: DailyBrief | null
   chat: ChatMessage[]

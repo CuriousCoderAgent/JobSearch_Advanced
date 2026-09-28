@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import confetti from 'canvas-confetti'
 import {
-  BookOpenCheck, CalendarClock, Download, ExternalLink, FileText, FolderOpen, HeartHandshake, Lock, Plus, Sparkles, Star, Trash2, Wand2
+  BookOpenCheck, CalendarClock, Download, ExternalLink, FileText, FolderOpen, HeartHandshake, Lock, Plus, Sparkles, Star, Trash2, Users, Wand2
 } from 'lucide-react'
 import { call, useDesk } from '../lib/desk'
 import { Avatar, Drawer, Empty, Modal, Spinner, daysAgo, fmtDate } from '../components/ui'
@@ -254,6 +254,7 @@ function AppDrawer({ app, onClose, onSave }: { app: Application; onClose: () => 
         <div className="row wrap">
           <button className="btn sm primary" onClick={genQuestions} disabled={!!busy || !state.hasKey}>{busy === 'prep' ? <Spinner size={14} /> : <Sparkles size={14} />} {jobQs.length ? 'Generate more questions' : 'Predict their questions'}</button>
           {jobQs.length > 0 && <button className="btn sm" onClick={() => go('prep', app.id)}>Open these questions</button>}
+          <button className="btn sm gold" onClick={async () => { await persist(); go('practice', `mock:${app.id}`) }}><Users size={14} /> Sit a mock interview</button>
         </div>
       </div>
 

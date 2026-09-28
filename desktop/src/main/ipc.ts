@@ -1,6 +1,6 @@
 import { BrowserWindow, Notification, dialog, ipcMain, shell } from 'electron'
-import { existsSync, unlinkSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, readdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'fs'
+import { dirname, join } from 'path'
 import { read, write, update, newId, nowIso, today } from './store'
 import { getApiKey, hasApiKey, setApiKey } from './secrets'
 import { applicationsDir, cvDir, deskRoot, ensure, practiceDir, safeName } from './paths'
@@ -13,7 +13,8 @@ import { AI_GTM_QUESTIONS, SEED_QUESTIONS } from './seeds'
 import {
   APP_STATUSES, localDay,
   type Application, type AppStatus, type ChatMessage, type CoachMemory, type Company, type CvVersion, type DailyBrief,
-  type Job, type MoodEntry, type PracticeAttempt, type Profile, type Question, type Settings, type SweepProgress,
+  type Job, type MockDecision, type MockSession, type MockTurn, type MoodEntry, type PracticeAttempt, type Profile,
+  type Question, type Settings, type SweepProgress,
   type UsageEntry, type BootstrapState, type UsageSummary, type Win
 } from '../shared/types'
 
@@ -114,7 +115,9 @@ function weekCount(kind: string): number {
     return read<Application[]>('applications', []).filter((x) => x.appliedAt && localDay(new Date(x.appliedAt)) >= from).length
   }
   if (kind === 'practice') {
-    return read<PracticeAttempt[]>('practice', []).filter((x) => localDay(new Date(x.createdAt)) >= from).length
+    // A whole mock interview counts as one practice session.
+    return read<PracticeAttempt[]>('practice', []).filter((x) => localDay(new Date(x.createdAt)) >= from).length +
+      read<MockSession[]>('mocks', []).filter((m) => m.turns.length && localDay(new Date(m.createdAt)) >= from).length
   }
   const a = read<Record<string, string[]>>('activity', {})
   return Object.entries(a).filter(([day, kinds]) => day >= from && kinds.includes(kind)).length
@@ -148,6 +151,36 @@ function usageSummary(): UsageSummary {
 }
 
 const MOOD_WORDS = ['', 'rough', 'low', 'okay', 'good', 'great']
+const DECISION_WORDS: Record<MockDecision, string> = { 'strong-yes': 'strong yes', yes: 'yes', 'lean-no': 'lean no', no: 'no' }
+
+// Questions for a mock interview: an opener, the company-specific questions
+// the coach predicted, what AI-first panels probe, one past weak spot, core
+// commercial questions, and a closer. Recently asked ones go to the back.
+const LEADER_ROLE = /\b(head|vp|vice president|director of|country|regional|national|general manager|business head|chief)\b/i
+const CORE_CATEGORIES = ['Deal execution', 'Numbers & forecasting', 'Strategy, GTM & P&L', 'Team leadership', 'Stakeholders & influence', 'Behavioural']
+function planMock(app: Application | undefined, count: number): Question[] {
+  const qs = ensureQuestions()
+  const track = app ? (LEADER_ROLE.test(app.role) ? 'leader' : 'ic') : null
+  const recent = new Set(read<MockSession[]>('mocks', []).slice(0, 2).flatMap((m) => m.planned.map((p) => p.questionId)))
+  const shuffled = (xs: Question[]): Question[] => xs
+    .map((q) => [Math.random() + (recent.has(q.id) ? 1 : 0), q] as const)
+    .sort((a, b) => a[0] - b[0])
+    .map(([, q]) => q)
+  const general = (pred: (q: Question) => boolean): Question[] =>
+    shuffled(qs.filter((q) => !q.applicationId && (!track || q.tracks.includes(track)) && pred(q)))
+  const picked: Question[] = []
+  const closer = qs.find((q) => q.text === 'Why should we pick you over the other finalists?')
+  const body = closer ? count - 1 : count
+  const add = (q: Question | undefined): void => { if (q && picked.length < body && !picked.some((p) => p.id === q.id)) picked.push(q) }
+  add(qs.find((q) => q.text === 'Walk me through your career so far.'))
+  if (app) add(qs.find((q) => q.text === 'Why this company, and why this role?'))
+  if (app) shuffled(qs.filter((q) => q.applicationId === app.id)).slice(0, Math.ceil(count / 2)).forEach(add)
+  general((q) => q.category === 'AI & tech GTM').slice(0, count >= 5 ? 2 : 1).forEach(add)
+  general((q) => (q.bestScore != null && q.bestScore < 60) || (q.critique != null && q.critique.score < 60)).slice(0, 1).forEach(add)
+  general((q) => CORE_CATEGORIES.includes(q.category)).forEach(add)
+  if (closer) picked.push(closer)
+  return picked
+}
 
 // Plain-text picture of the search, handed to the coach for briefs and chat.
 function snapshot(): string {
@@ -164,6 +197,7 @@ function snapshot(): string {
   const closedRecently = byStatus('closed').filter((a) => Date.now() - new Date(a.updatedAt).getTime() < 14 * 864e5)
   const ready = qs.filter((q) => q.readiness === 'ready').length
   const recent = practice.slice(-5).map((p) => `${p.createdAt.slice(0, 10)} "${p.questionText}" → ${p.feedback?.overall ?? '?'}/100${p.feedback ? `; top fix: ${p.feedback.fixes[0]?.issue ?? ''}` : ''}`)
+  const mocks = read<MockSession[]>('mocks', []).filter((m) => m.debrief).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-3)
   const todayMood = moods.find((m) => m.day === today())
   const week = moods.filter((m) => Date.now() - new Date(m.at).getTime() < 7 * 864e5)
   const recentWins = wins.filter((w) => Date.now() - new Date(w.at).getTime() < 21 * 864e5).slice(-10)
@@ -181,6 +215,9 @@ function snapshot(): string {
     upcoming.length ? `Upcoming: ${upcoming.slice(0, 5).map((a) => `${a.company} — ${a.nextStep} (${a.nextStepDate})`).join('; ')}.` : '',
     `Interview readiness: ${ready}/${qs.length} questions interview-ready; ${qs.filter((q) => q.myAnswer).length} have a written answer.`,
     recent.length ? `Recent practice:\n${recent.join('\n')}` : 'No practice recordings yet.',
+    mocks.length
+      ? `Mock interviews:\n${mocks.map((m) => `- ${m.createdAt.slice(0, 10)} ${m.label}: ${m.debrief!.overall}/100, panel says ${DECISION_WORDS[m.debrief!.decision]}; patterns: ${m.debrief!.themes.slice(0, 2).join('; ')}`).join('\n')}`
+      : '',
     recentWins.length ? `Wins logged in the last three weeks:\n${recentWins.map((w) => `- ${w.at.slice(0, 10)}: ${w.text}`).join('\n')}` : 'No wins logged yet.',
     `New relevant job openings on the radar: ${jobs.filter((j) => Date.now() - new Date(j.firstSeen).getTime() < 3 * 864e5).length} in the last 3 days.`
   ].filter(Boolean).join('\n')
@@ -197,6 +234,7 @@ function bootstrap(): BootstrapState {
     cvs: read<CvVersion[]>('cvs', []),
     questions: ensureQuestions(),
     practice: read<PracticeAttempt[]>('practice', []).map(({ words: _w, ...p }) => ({ ...p, words: [] })),
+    mocks: read<MockSession[]>('mocks', []),
     usage: usageSummary(),
     brief: read<DailyBrief | null>('brief', null),
     chat: read<ChatMessage[]>('chat', []),
@@ -630,6 +668,83 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   handle('practice:mediaUrl', (id: string) => {
     const a = byId<PracticeAttempt>('practice', id)
     return a.mediaFile && existsSync(a.mediaFile) ? `media://${encodeURIComponent(a.mediaFile)}` : null
+  })
+
+  // Mock interviews
+  const mockApp = (s: MockSession): Application | undefined =>
+    s.applicationId ? read<Application[]>('applications', []).find((a) => a.id === s.applicationId) : undefined
+  handle('mock:start', (appId: string | null, count: number, mode: 'audio' | 'video', followUps: boolean) => {
+    const app = appId ? byId<Application>('applications', appId) : undefined
+    const planned = planMock(app, Math.min(8, Math.max(2, Math.round(count))))
+    if (!planned.length) throw new Error('No questions to ask yet — add some in Interview Prep.')
+    return upsert<MockSession>('mocks', {
+      id: newId(), createdAt: nowIso(), applicationId: app?.id,
+      label: app ? `${app.company} — ${app.role}` : 'AI-company panel',
+      mode, followUps: followUps && hasApiKey(),
+      planned: planned.map((q) => ({ questionId: q.id, text: q.text })), turns: []
+    })
+  })
+  handle('mock:turn', (sessionId: string, p: {
+    kind: MockTurn['kind']; questionId?: string; question: string; media: ArrayBuffer; ext: string
+    transcript: string; metrics: MockTurn['metrics']; frame?: string
+  }) => {
+    const s = byId<MockSession>('mocks', sessionId)
+    const dir = ensure(join(practiceDir(), 'Mock interviews', safeName(`${s.createdAt.slice(0, 10)} - ${s.label} - ${s.id.slice(0, 6)}`, 110)))
+    const stem = `${String(s.turns.length + 1).padStart(2, '0')} - ${safeName(p.question, 50)}`
+    const mediaFile = join(dir, `${stem}.${p.ext}`)
+    writeFileSync(mediaFile, Buffer.from(p.media))
+    let frameFile: string | undefined
+    if (p.frame) { frameFile = join(dir, `${stem}.jpg`); writeFileSync(frameFile, Buffer.from(p.frame, 'base64')) }
+    const turn: MockTurn = {
+      id: newId(), kind: p.kind, questionId: p.questionId, question: p.question, at: nowIso(),
+      mediaFile, frameFile, transcript: p.transcript, metrics: p.metrics
+    }
+    const fresh = byId<MockSession>('mocks', sessionId)
+    upsert('mocks', { ...fresh, turns: [...fresh.turns, turn] })
+    logActivity('practice')
+    return turn
+  })
+  // One probing follow-up after a main answer, at most one for every two questions.
+  handle('mock:followUp', async (sessionId: string, turnId: string) => {
+    const s = byId<MockSession>('mocks', sessionId)
+    if (!s.followUps || !hasApiKey()) return null
+    if (s.turns.filter((t) => t.kind === 'followup').length >= Math.ceil(s.planned.length / 2)) return null
+    const turn = s.turns.find((t) => t.id === turnId)
+    if (!turn || turn.kind !== 'main' || turn.transcript.trim().split(/\s+/).length < 12) return null
+    return coach.mockFollowUp(turn, mockApp(s))
+  })
+  handle('mock:debrief', async (sessionId: string) => {
+    const s = byId<MockSession>('mocks', sessionId)
+    if (!s.turns.length) throw new Error('Answer at least one question first.')
+    const frames = s.mode === 'video'
+      ? s.turns.map((t) => (t.frameFile && existsSync(t.frameFile) ? readFileSync(t.frameFile).toString('base64') : null))
+      : []
+    const previous = read<MockSession[]>('mocks', [])
+      .filter((m) => m.id !== s.id && m.debrief && m.createdAt < s.createdAt)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(-2)
+    const debrief = await coach.mockDebrief(s, mockApp(s), frames, previous)
+    if (!s.debrief) {
+      // Sitting it is the win; the verdict only joins the log when it's a good one.
+      const advanced = debrief.decision === 'yes' || debrief.decision === 'strong-yes'
+      addWin(`Sat a ${s.turns.length}-answer mock interview (${s.label})${advanced ? ` — the panel would advance you (${debrief.overall})` : ''}`)
+      const last = previous[previous.length - 1]?.debrief
+      if (last && debrief.overall >= last.overall + 5) addWin(`Mock interview score up from ${last.overall} to ${debrief.overall}`)
+    }
+    return upsert('mocks', { ...byId<MockSession>('mocks', sessionId), debrief })
+  })
+  handle('mock:remove', (sessionId: string) => {
+    const s = read<MockSession[]>('mocks', []).find((m) => m.id === sessionId)
+    for (const t of s?.turns ?? []) {
+      for (const f of [t.mediaFile, t.frameFile]) if (f && existsSync(f)) unlinkSync(f)
+    }
+    const dir = s?.turns[0]?.mediaFile ? dirname(s.turns[0].mediaFile) : null
+    if (dir && existsSync(dir) && !readdirSync(dir).length) rmdirSync(dir)
+    remove('mocks', sessionId)
+  })
+  handle('mock:mediaUrl', (sessionId: string, turnId: string) => {
+    const t = byId<MockSession>('mocks', sessionId).turns.find((x) => x.id === turnId)
+    return t?.mediaFile && existsSync(t.mediaFile) ? `media://${encodeURIComponent(t.mediaFile)}` : null
   })
 
   // Coach

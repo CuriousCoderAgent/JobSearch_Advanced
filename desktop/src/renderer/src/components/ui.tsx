@@ -49,6 +49,15 @@ export function Spinner({ size = 16 }: { size?: number }): React.JSX.Element {
   return <Loader2 size={size} className="spin" />
 }
 
+// Recorded webm files carry no duration, so the seek bar is dead until the
+// browser has scanned to the end once. Nudge it there and back.
+export function fixDuration(e: React.SyntheticEvent<HTMLMediaElement>): void {
+  const m = e.currentTarget
+  if (m.duration !== Infinity) return
+  m.ontimeupdate = () => { m.ontimeupdate = null; m.currentTime = 0 }
+  m.currentTime = 1e101
+}
+
 // Score trend (0–100), oldest to newest, with the 80 "would impress" line.
 export function Sparkline({ values }: { values: number[] }): React.JSX.Element {
   const w = 100

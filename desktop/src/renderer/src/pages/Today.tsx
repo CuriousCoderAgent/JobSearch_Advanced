@@ -63,6 +63,12 @@ export default function Today() {
     actions.push(qs.length
       ? { text: `Prep for ${a.company}: ${qs.filter((q) => q.readiness !== 'ready').length} company questions still not interview-ready`, to: 'prep', focus: a.id }
       : { text: `Generate the likely interview questions for ${a.company}`, to: 'prep', focus: a.id })
+    if (!state.mocks.some((m) => m.applicationId === a.id && daysAgo(m.createdAt) < 4)) {
+      actions.push({ text: `Sit a full mock interview for ${a.company} — panel, follow-ups and a debrief`, to: 'practice', focus: `mock:${a.id}` })
+    }
+  }
+  if (!apps.some((x) => x.status === 'interviewing') && !state.mocks.length && state.practice.length) {
+    actions.push({ text: 'Try your first mock interview — five questions back to back, one honest debrief', to: 'practice', focus: 'mock' })
   }
   for (const a of apps.filter((x) => x.status === 'applied' && x.appliedAt && daysAgo(x.appliedAt) >= 7).slice(0, 2)) {
     actions.push({ text: `Follow up with ${a.company} — applied ${daysAgo(a.appliedAt)} days ago with no update`, to: 'applications', focus: a.id })

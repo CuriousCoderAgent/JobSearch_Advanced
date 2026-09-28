@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, CircleStop, Eye, EyeOff, ChartLine, HeartPulse, Mic, RotateCcw, Shuffle, Sparkles, Trash2 } from 'lucide-react'
+import { Camera, CircleStop, Eye, EyeOff, ChartLine, HeartPulse, Mic, RotateCcw, Shuffle, Sparkles, Trash2, Users } from 'lucide-react'
 import { call, onEvent, useDesk } from '../lib/desk'
 import { analyze, decodeTo16k, transcribe } from '../lib/voice'
-import { Bar, Empty, Markdown, Ring, Sparkline, Spinner, fmtDate, scoreTone } from '../components/ui'
+import { Bar, Empty, Markdown, Ring, Sparkline, Spinner, fixDuration, fmtDate, scoreTone } from '../components/ui'
+import MockInterview from './MockInterview'
 import type { PracticeAttempt, Question } from '../../../shared/types'
 
 type Phase = 'idle' | 'recording' | 'processing' | 'done'
@@ -11,6 +12,9 @@ export default function Practice() {
   const { state, patch, run, focus, toast } = useDesk()
   const initial = focus && state.questions.some((q) => q.id === focus) ? focus : (state.questions.find((q) => q.myAnswer) ?? state.questions[0])?.id
   const [qid, setQid] = useState<string | undefined>(initial)
+  // Other pages open a mock straight away with focus "mock" or "mock:<applicationId>".
+  const [studio, setStudio] = useState<'single' | 'mock'>(focus?.startsWith('mock') ? 'mock' : 'single')
+  const mockAppId = focus?.startsWith('mock:') ? focus.slice(5) : undefined
   const [mode, setMode] = useState<'audio' | 'video'>('video')
   const [phase, setPhase] = useState<Phase>('idle')
   const [status, setStatus] = useState('')
@@ -159,6 +163,16 @@ export default function Practice() {
 
   if (!state.questions.length) return <div className="page"><Empty title="No questions yet" /></div>
   const mm = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
+  const studioTabs = (
+    <div className="tabs">
+      <button className={`tab ${studio === 'single' ? 'on' : ''}`} disabled={phase === 'recording'} onClick={() => setStudio('single')}><Mic size={13} /> One question</button>
+      <button className={`tab ${studio === 'mock' ? 'on' : ''}`} disabled={phase === 'recording'} onClick={() => setStudio('mock')}><Users size={13} /> Mock interview</button>
+    </div>
+  )
+
+  if (studio === 'mock') {
+    return <MockInterview tabs={studioTabs} initialAppId={mockAppId} onPractise={(id) => { setStudio('single'); setQid(id) }} />
+  }
 
   return (
     <div className="page" style={{ maxWidth: 'none' }}>
@@ -168,9 +182,12 @@ export default function Practice() {
           <div className="page-title">Say it out loud. Get coached.</div>
           <div className="page-sub">Transcribed privately on your PC. Your coach scores structure, substance, presence and delivery — like a VP panel would.</div>
         </div>
-        <div className="tabs">
-          <button className={`tab ${mode === 'video' ? 'on' : ''}`} disabled={phase === 'recording'} onClick={() => setMode('video')}><Camera size={13} /> Video</button>
-          <button className={`tab ${mode === 'audio' ? 'on' : ''}`} disabled={phase === 'recording'} onClick={() => setMode('audio')}><Mic size={13} /> Audio only</button>
+        <div className="row">
+          {studioTabs}
+          <div className="tabs">
+            <button className={`tab ${mode === 'video' ? 'on' : ''}`} disabled={phase === 'recording'} onClick={() => setMode('video')}><Camera size={13} /> Video</button>
+            <button className={`tab ${mode === 'audio' ? 'on' : ''}`} disabled={phase === 'recording'} onClick={() => setMode('audio')}><Mic size={13} /> Audio only</button>
+          </div>
         </div>
       </div>
 
@@ -257,14 +274,6 @@ function Metric({ label, value, note, tone }: { label: string; value: string; no
   )
 }
 
-// Recorded webm files carry no duration, so the seek bar is dead until the
-// browser has scanned to the end once. Nudge it there and back.
-function fixDuration(e: React.SyntheticEvent<HTMLMediaElement>): void {
-  const m = e.currentTarget
-  if (m.duration !== Infinity) return
-  m.ontimeupdate = () => { m.ontimeupdate = null; m.currentTime = 0 }
-  m.currentTime = 1e101
-}
 
 function Feedback({ a, mediaUrl, onRetry, onDelete, onAgain, hasKey }: { a: PracticeAttempt; mediaUrl: string | null; onRetry: () => void; onDelete: () => void; onAgain: () => void; hasKey: boolean }) {
   const m = a.metrics

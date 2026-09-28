@@ -3,7 +3,8 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { coachParse, coachStream, type CoachTool } from './ai'
 import { newId, nowIso, read, update } from './store'
 import type {
-  Application, CoachMemory, CvVersion, DeliveryMetrics, PracticeAttempt, PracticeFeedback, Profile, Question, Track
+  Application, CoachMemory, CvVersion, DeliveryMetrics, MockDebrief, MockSession, PracticeAttempt, PracticeFeedback,
+  Profile, Question, Track
 } from '../shared/types'
 
 // The coach's voice. Kept stable (and cached) across every coaching call; it
@@ -291,6 +292,160 @@ export async function practiceFeedback(opts: {
       energy: e.startsWith('f') ? 'flat' : e.startsWith('a') ? 'animated' : 'steady'
     },
     progress: out.progress.trim() || undefined
+  }
+}
+
+// ---------- Mock interviews ----------
+
+function metricLine(m: DeliveryMetrics): string {
+  const perMin = m.durationSec > 0 ? (m.fillerCount / (m.durationSec / 60)).toFixed(1) : '0'
+  return [
+    `${Math.round(m.durationSec)}s`, `${m.wpm} wpm`, `${perMin} fillers/min`, `${m.hedgeCount} hedges`,
+    m.airtimePct != null ? `airtime ${m.airtimePct}%` : '',
+    m.startLatencySec != null ? `first word after ${m.startLatencySec}s` : '',
+    m.uptalkRate != null ? `uptalk ${Math.round(m.uptalkRate * 100)}%` : '',
+    m.energyDropPct != null ? `energy fade ${m.energyDropPct}%` : '',
+    m.paceShiftWpm != null ? `pace drift ${m.paceShiftWpm > 0 ? '+' : ''}${m.paceShiftWpm} wpm` : '',
+    m.pitchVariationSemitones != null ? `pitch variation ${m.pitchVariationSemitones} st` : ''
+  ].filter(Boolean).join(', ')
+}
+
+// The interviewer is a panel member, not the coach: it probes, it doesn't encourage.
+function panelSystem(app?: Application): string {
+  const p = read<Profile>('profile', {} as Profile)
+  const cvs = read<CvVersion[]>('cvs', [])
+  const master = cvs.find((c) => c.id === p.masterCvId) ?? cvs.find((c) => c.kind === 'master') ?? cvs[0]
+  return [
+    app
+      ? `You are a senior member of ${app.company}'s hiring panel, interviewing a candidate for ${app.role}.`
+      : 'You are a senior member of the hiring panel at an AI-first technology company, interviewing a candidate for a senior enterprise sales role in India.',
+    'You are sharp, fair and time-conscious. You listen for specifics — numbers, the candidate’s own role versus the',
+    'team’s, how they handled resistance, what they would do differently — and you probe what was vague or too good to',
+    'be true. You are not their coach and you give no feedback during the interview.',
+    app?.jd ? `\nThe job description:\n${app.jd.slice(0, 10000)}` : '',
+    master ? `\nThe candidate’s CV:\n${master.text.slice(0, 20000)}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+export async function mockFollowUp(turn: { question: string; transcript: string }, app?: Application): Promise<string | null> {
+  const out = await coachParse('mock: follow-up', {
+    system: panelSystem(app),
+    effort: 'low',
+    maxTokens: 2000,
+    schema: z.object({ followUp: z.string() }),
+    content: [
+      `You asked: "${turn.question}"`,
+      '',
+      'Their answer (live speech-to-text, so ignore small transcription slips):',
+      turn.transcript,
+      '',
+      'Would a sharp panel member probe before moving on? If the answer left a claim vague, a number missing, their',
+      'personal contribution unclear, or invites an obvious challenge, ask ONE follow-up question — under 25 words, in',
+      'natural spoken English, the way you would say it across the table. If the answer was complete and specific,',
+      'return an empty string.'
+    ].join('\n')
+  })
+  const q = out.followUp.trim()
+  return q.length > 8 ? q : null
+}
+
+const DECISIONS = ['strong-yes', 'yes', 'lean-no', 'no'] as const
+
+export async function mockDebrief(
+  session: MockSession,
+  app: Application | undefined,
+  frames: (string | null)[],
+  previous: MockSession[]
+): Promise<MockDebrief> {
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [{
+    type: 'text',
+    text: [
+      app ? `Mock interview for ${app.role} at ${app.company}.` : 'Mock interview: an AI-first company’s panel for a senior enterprise sales role in India.',
+      app?.jd ? `Job description:\n${app.jd.slice(0, 8000)}` : '',
+      '',
+      'The full interview, in order (answers are local speech-to-text; it can miss "um/uh", so trust the delivery numbers):',
+      ...session.turns.map((t, i) => [
+        '',
+        `Answer ${i + 1} — ${t.kind === 'followup' ? 'follow-up question' : 'question'}: "${t.question}"`,
+        t.transcript.trim() || '(nothing was recognised — they may have skipped or stayed silent)',
+        `Delivery: ${metricLine(t.metrics)}`
+      ].join('\n')),
+      session.planned.length > session.turns.filter((t) => t.kind === 'main').length
+        ? `\n(They stopped after ${session.turns.filter((t) => t.kind === 'main').length} of ${session.planned.length} planned questions.)`
+        : ''
+    ].filter(Boolean).join('\n')
+  }]
+  const shots = frames.map((f, i) => [f, i] as const).filter(([f]) => f)
+  if (shots.length) {
+    content.push({ type: 'text', text: 'One still frame from the middle of each answer, labelled by answer number:' })
+    for (const [f, i] of shots) {
+      content.push({ type: 'text', text: `Answer ${i + 1}:` })
+      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: f! } })
+    }
+  }
+  content.push({
+    type: 'text',
+    text: [
+      previous.length
+        ? `Their earlier mock interviews:\n${previous.map((m) => `- ${m.createdAt.slice(0, 10)} ${m.label}: ${m.debrief!.overall}/100, ${m.debrief!.decision.replace('-', ' ')}; patterns: ${m.debrief!.themes.join('; ')}`).join('\n')}`
+        : 'This is their first mock interview.',
+      '',
+      'Debrief this interview in two voices. First as the hiring panel: on the evidence of this interview alone, would',
+      'you advance them — strong yes, yes, lean no or no — with an overall 0–100 score, a one-line headline, and how the',
+      'panel would actually talk about them in the debrief room. Then as their coach: for every answer, a 0–100 score, a',
+      'one-line verdict, their single strongest sentence quoted verbatim (empty if none), and one fix. Name the real',
+      'strengths, the 2–4 patterns that recur across answers, and their emotional presence across the interview — the',
+      'three words a panel would use, nerves, energy, and how composure changed from the first answer to the last (did',
+      'they warm up, or fade?), with one fix for how they sound. Then a three-step practice plan for before the next',
+      'mock, one line on progress against earlier mocks (empty if this is the first), and one line of genuine,',
+      'evidence-based belief.'
+    ].join('\n')
+  })
+  const out = await coachParse('mock: debrief', {
+    system: persona(),
+    effort: 'high',
+    schema: z.object({
+      decision: z.string().describe('Exactly one of: "strong yes", "yes", "lean no", "no"'),
+      overall: z.number().int(),
+      headline: z.string(),
+      summary: z.string().describe('How the panel would talk about the candidate in the debrief room, 3–4 sentences'),
+      answers: z.array(z.object({
+        turn: z.number().int().describe('Answer number, starting at 1'),
+        score: z.number().int(),
+        verdict: z.string(),
+        bestLine: z.string().describe('Their strongest sentence, quoted verbatim; empty string if none'),
+        fix: z.string()
+      })),
+      strengths: z.array(z.string()),
+      themes: z.array(z.string()).describe('2–4 patterns that recur across answers'),
+      presence: z.object({
+        comesAcrossAs: z.array(z.string()),
+        nerves: z.string().describe('Exactly one of: "calm", "some", "high"'),
+        energy: z.string().describe('Exactly one of: "flat", "steady", "animated"'),
+        read: z.string(),
+        fix: z.string(),
+        arc: z.string().describe('How composure and energy changed from the first answer to the last')
+      }),
+      plan: z.array(z.string()),
+      progress: z.string(),
+      belief: z.string()
+    }),
+    content
+  })
+  const d = out.decision.toLowerCase()
+  const n = out.presence.nerves.toLowerCase()
+  const e = out.presence.energy.toLowerCase()
+  return {
+    ...out,
+    decision: d.startsWith('strong') ? DECISIONS[0] : d.includes('lean') ? DECISIONS[2] : d.startsWith('y') ? DECISIONS[1] : DECISIONS[3],
+    presence: {
+      ...out.presence,
+      comesAcrossAs: out.presence.comesAcrossAs.slice(0, 3),
+      nerves: n.startsWith('h') ? 'high' : n.startsWith('c') ? 'calm' : 'some',
+      energy: e.startsWith('f') ? 'flat' : e.startsWith('a') ? 'animated' : 'steady'
+    },
+    progress: out.progress.trim() || undefined,
+    at: nowIso()
   }
 }
 
