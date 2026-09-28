@@ -1,0 +1,65 @@
+name: Desktop app (Windows installer)
+
+on:
+  push:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build installer
+        run: npm run dist:win
+
+      - name: Read version
+        id: meta
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JobRadar-Desk-Setup-${{ steps.meta.outputs.version }}
+          path: desktop/release/*.exe
+          if-no-files-found: error
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-v${{ steps.meta.outputs.version }}-build.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: JobRadar Desk ${{ steps.meta.outputs.version }} (build ${{ github.run_number }})
+          prerelease: ${{ github.ref != 'refs/heads/main' }}
+          files: desktop/release/*.exe
+          body: |
+            Windows installer for JobRadar Desk, built from `${{ github.ref_name }}` @ ${{ github.sha }}.
+
+            1. Download **JobRadar-Desk-Setup-${{ steps.meta.outputs.version }}.exe** below and run it.
+            2. Windows SmartScreen may say it doesn't recognise the app (it isn't code-signed): click **More info → Run anyway**.
+            3. On first launch, paste your Anthropic API key when asked. It's encrypted on this PC.
