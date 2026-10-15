@@ -85,6 +85,19 @@ export interface Job {
   relevant: boolean | null
   relevanceReason?: string
   dismissed?: boolean
+  /** When the company took the listing down (checked against the listing itself). */
+  goneAt?: string
+  /** Sweeps in a row where the role was missing from the feed but the listing couldn't be read. */
+  missedChecks?: number
+  /** When a copy of its description was saved (kept in the jobcache store). */
+  cachedAt?: string
+}
+
+/** A copy of a matching role's description, saved while the listing was live. */
+export interface JobCacheEntry {
+  text: string
+  at: string
+  generic?: boolean
 }
 
 export type AppStatus = 'saved' | 'applied' | 'screening' | 'interviewing' | 'offer' | 'closed'
@@ -447,6 +460,8 @@ export interface SweepProgress {
   current?: string
   newJobs?: number
   highlights?: string[]
+  /** Matching roles that closed this sweep before he acted on them. */
+  closed?: number
   error?: string
 }
 

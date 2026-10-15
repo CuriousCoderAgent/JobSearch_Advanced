@@ -29,7 +29,7 @@ const NAV: { id: Page; label: string; icon: typeof Sun }[] = [
 function Shell() {
   const { state, page, go } = useDesk()
   if (!state.settings.onboarded) return <Onboarding />
-  const newJobs = state.jobs.filter((j) => Date.now() - new Date(j.firstSeen).getTime() < 3 * 864e5).length
+  const newJobs = state.jobs.filter((j) => !j.goneAt && Date.now() - new Date(j.firstSeen).getTime() < 3 * 864e5).length
   const upcoming = state.applications.filter((a) => a.status === 'interviewing').length
   return (
     <div className="shell">

@@ -1,11 +1,19 @@
 import { createHash } from 'crypto'
 import { z } from 'zod'
-import type { Company, Job, Profile, Settings, SweepProgress } from '../../shared/types'
+import type { Application, Company, Job, JobCacheEntry, Profile, Settings, SweepProgress } from '../../shared/types'
 import { read, write, nowIso } from '../store'
 import { hasApiKey } from '../secrets'
 import { bulkParse } from '../ai'
 import { discoverSource } from './discover'
-import { fetchFromSource, getText, type RawJob } from './adapters'
+import { fetchFromSource, fetchJobDescription, getText, listingStatus, type JdHint, type RawJob } from './adapters'
+import { actedOn, appFor } from '../../shared/missed'
+
+async function inBatches<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let i = 0
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (i < items.length) await fn(items[i++]).catch(() => undefined)
+  }))
+}
 
 // AI-first companies title GTM roles differently ("Engagement Principal",
 // "Client Partner", "Head of India"); these were added in data version 2 and
@@ -135,6 +143,8 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
   onProgress({ ...progress })
 
   const fresh: Job[] = []
+  // Companies whose feed was read in full this sweep — only there can a missing role mean anything.
+  const readOk = new Set<string>()
   let next = 0
   const worker = async (): Promise<void> => {
     while (next < companies.length) {
@@ -149,8 +159,9 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
           const r = await readCareersPage(c, src.url)
           if (r.hash) c.pageHash = r.hash
           if (r.unchanged) {
-            for (const j of existing.values()) if (j.companyId === c.id) j.lastSeen = now
+            for (const j of existing.values()) if (j.companyId === c.id && !j.goneAt) j.lastSeen = now
             c.lastStatus = 'Careers page unchanged — no AI needed'
+            readOk.add(c.id)
           } else raw = r.jobs
         } else {
           raw = await fetchFromSource(src, queries, settings.indiaOnly !== false)
@@ -158,11 +169,15 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
           if (!raw && !['portal', 'none'].includes(src.type)) c.source = { ...src, detectedAt: '1970-01-01T00:00:00.000Z' }
         }
         if (raw) {
+          readOk.add(c.id)
           for (const r of raw) {
             const id = `${c.id}:${r.externalId}`
             const prev = existing.get(id)
-            if (prev) { prev.lastSeen = now; prev.title = r.title; prev.url = r.url; prev.location = r.location }
-            else {
+            if (prev) {
+              prev.lastSeen = now; prev.title = r.title; prev.url = r.url; prev.location = r.location
+              // Back on the board: relisted.
+              if (prev.goneAt) { prev.goneAt = undefined; prev.missedChecks = 0 }
+            } else {
               const job: Job = {
                 id, companyId: c.id, company: c.name, title: r.title, url: r.url, location: r.location,
                 postedAt: r.postedAt ?? null, firstSeen: now, lastSeen: now, relevant: null
@@ -222,15 +237,54 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
     for (const j of toJudge) { j.relevant = true; j.relevanceReason = 'Keyword match' }
   }
 
-  // Drop listings that have been gone for 30+ days.
-  const kept = [...existing.values()].filter((j) => daysSince(j.lastSeen) < 30)
+  // Matching roles that dropped out of a feed: ask the listing itself before
+  // calling them closed (keyword-searched and capped feeds can lose live roles).
+  const byId = new Map(companies.map((c) => [c.id, c]))
+  const hintFor = (j: Job): JdHint => ({ source: byId.get(j.companyId)?.source, externalId: j.id.slice(j.companyId.length + 1) })
+  const dropped = [...existing.values()]
+    .filter((j) => j.relevant && !j.dismissed && !j.goneAt && j.lastSeen !== now)
+    .slice(0, 60)
+  const newlyGone: Job[] = []
+  if (dropped.length) onProgress({ ...progress, current: 'checking roles that left the feeds' })
+  await inBatches(dropped, 4, async (j) => {
+    const status = await listingStatus(j.url, hintFor(j))
+    if (status === 'open') { j.lastSeen = now; j.missedChecks = 0; return }
+    if (status === 'unknown') {
+      // Only a full read of the company's feed without the role counts against
+      // it — unless nothing has shown it for six weeks.
+      if (!readOk.has(j.companyId) && daysSince(j.lastSeen) < 45) return
+      j.missedChecks = (j.missedChecks ?? 0) + 1
+      if (j.missedChecks < (byId.get(j.companyId)?.source?.type === 'page' ? 2 : 3)) return
+    }
+    j.goneAt = now
+    newlyGone.push(j)
+  })
+
+  // Keep a copy of every matching role's description while it's live, so it
+  // can still be read after the company takes the listing down.
+  const cache = read<Record<string, JobCacheEntry>>('jobcache', {})
+  for (const j of existing.values()) if (cache[j.id] && !j.cachedAt) j.cachedAt = cache[j.id].at
+  const uncached = [...existing.values()].filter((j) => j.relevant && !j.goneAt && !cache[j.id]).slice(0, 30)
+  if (uncached.length) onProgress({ ...progress, current: 'saving copies of matching roles' })
+  await inBatches(uncached, 3, async (j) => {
+    const got = await fetchJobDescription(j.url, hintFor(j)).catch(() => null)
+    if (got) { cache[j.id] = { text: got.text, at: now, generic: got.generic }; j.cachedAt = now }
+  })
+
+  // Matching roles are kept for a year so missed ones stay visible; the rest
+  // drop off 30 days after they leave the feeds.
+  const kept = [...existing.values()].filter((j) => (j.relevant ? daysSince(j.goneAt ?? j.lastSeen) < 365 : daysSince(j.lastSeen) < 30))
+  const keptIds = new Set(kept.map((j) => j.id))
   write('jobs', kept)
+  write('jobcache', Object.fromEntries(Object.entries(cache).filter(([id]) => keptIds.has(id))))
   write('companies', companies)
   write('settings', { ...read<Settings>('settings', {} as Settings), lastSweepAt: now })
   const matches = fresh.filter((j) => j.relevant)
+  const apps = read<Application[]>('applications', [])
   const result: SweepProgress = {
     running: false, done: companies.length, total: companies.length, newJobs: matches.length, error: progress.error,
-    highlights: matches.slice(0, 3).map((j) => `${j.title} — ${j.company}`)
+    highlights: matches.slice(0, 3).map((j) => `${j.title} — ${j.company}`),
+    closed: newlyGone.filter((j) => !actedOn(appFor(j, apps))).length
   }
   onProgress(result)
   return result

@@ -20,8 +20,9 @@ const open = (url: string): void => { call('shell:openExternal', url).catch(() =
 type Editing = { mode: 'edit'; contact: Contact } | { mode: 'add'; companyId?: string }
 
 export default function People() {
-  const { state, patch, run, toast } = useDesk()
-  const [q, setQ] = useState('')
+  const { state, patch, run, toast, focus } = useDesk()
+  // Other pages open this one on a company by passing its name.
+  const [q, setQ] = useState(focus ?? '')
   const [status, setStatus] = useState<'all' | ContactStatus>('all')
   const [connection, setConnection] = useState<'all' | ConnectionStatus>('all')
   const [priority, setPriority] = useState<'all' | '1' | '2' | '3'>('all')

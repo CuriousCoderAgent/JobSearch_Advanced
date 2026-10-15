@@ -3,6 +3,7 @@ import { ArrowRight, Bell, CalendarClock, HeartHandshake, Plus, RefreshCw, Spark
 import { call, useDesk } from '../lib/desk'
 import { Avatar, Bar, Ring, Spinner, daysAgo, fmtDate, scoreTone } from '../components/ui'
 import type { DailyBrief, MoodEntry, Win } from '../../../shared/types'
+import { fmtDays, missedSummary } from '../../../shared/missed'
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -52,7 +53,8 @@ export default function Today() {
   const readiness = questions.length ? Math.round((ready / questions.length) * 100) : 0
   const scored = practice.filter((p) => p.feedback)
   const avgScore = scored.length ? Math.round(scored.slice(-5).reduce((s, p) => s + p.feedback!.overall, 0) / Math.min(5, scored.length)) : null
-  const freshJobs = jobs.filter((j) => daysAgo(j.firstSeen) < 3).slice(0, 5)
+  const freshJobs = jobs.filter((j) => !j.goneAt && daysAgo(j.firstSeen) < 3).slice(0, 5)
+  const missed = missedSummary(jobs, apps)
   const upcoming = apps.filter((a) => a.status !== 'closed' && a.nextStepDate).sort((a, b) => a.nextStepDate!.localeCompare(b.nextStepDate!)).slice(0, 4)
   const low = mood != null && mood.score <= 2
 
@@ -83,6 +85,15 @@ export default function Today() {
   }
   for (const a of apps.filter((x) => x.status === 'applied' && x.appliedAt && daysAgo(x.appliedAt) >= 7).slice(0, 2)) {
     actions.push({ text: `Follow up with ${a.company} — applied ${daysAgo(a.appliedAt)} days ago with no update`, to: 'applications', focus: a.id })
+  }
+  if (missed.atRisk.length) {
+    const r = missed.atRisk[0]
+    const lost = missed.missed.filter((m) => daysAgo(m.job.goneAt) < 14).length
+    actions.push({
+      text: `Apply to ${r.job.title} at ${r.job.company} — on the radar ${fmtDays(r.openDays)} with no action` +
+        (missed.atRisk.length > 1 ? ` (${missed.atRisk.length - 1} more ageing)` : '') + (lost ? `. ${lost} matching role${lost === 1 ? '' : 's'} closed before you applied in the last two weeks` : ''),
+      to: 'jobs'
+    })
   }
   if (freshJobs.length) actions.push({ text: `${freshJobs.length} new matching roles on the radar — shortlist the best`, to: 'jobs' })
   const nextQ = questions.find((q) => q.myAnswer && q.readiness !== 'ready' && q.attempts === 0)

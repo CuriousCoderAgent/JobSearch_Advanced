@@ -17,9 +17,10 @@ import {
   type Contact, type OrgPeopleMeta, type PeopleProgress,
   type Application, type AppStatus, type ChatMessage, type CoachMemory, type Company, type CvVersion, type DailyBrief,
   type Job, type MockDecision, type MockSession, type MockTurn, type MoodEntry, type PracticeAttempt, type Profile,
-  type Question, type Settings, type SweepProgress,
+  type JobCacheEntry, type Question, type Settings, type SweepProgress,
   type UsageEntry, type BootstrapState, type UsageSummary, type Win
 } from '../shared/types'
+import { fmtDays, missedSummary } from '../shared/missed'
 
 const DATA_VERSION = 2
 const DEFAULT_SETTINGS: Settings = {
@@ -187,6 +188,24 @@ function planMock(app: Application | undefined, count: number): Question[] {
   return picked
 }
 
+function missedLine(apps: Application[]): string {
+  const m = missedSummary(read<Job[]>('jobs', []), apps)
+  const lines: string[] = []
+  if (m.missed.length) {
+    lines.push(`Missed roles: ${m.missed.length} matching role${m.missed.length === 1 ? '' : 's'} closed before he applied (${m.last30} in the last 30 days` +
+      `${m.savedNotApplied ? `; ${m.savedNotApplied} were saved to the tracker but never sent` : ''}). Most recent: ` +
+      m.missed.slice(0, 5).map((x) => `${x.job.title} @ ${x.job.company} (on his radar ${fmtDays(x.openDays)}+)`).join('; ') + '.')
+  }
+  if (m.medianOpenDays != null) {
+    lines.push(`Matching roles stay up a median ${fmtDays(m.medianOpenDays)}` +
+      (m.medianApplyDays != null ? `; he takes a median ${fmtDays(m.medianApplyDays)} from a role appearing to applying.` : '.'))
+  }
+  if (m.atRisk.length) {
+    lines.push(`Live matches he hasn't acted on that are ageing (act before they close): ${m.atRisk.slice(0, 5).map((r) => `${r.job.title} @ ${r.job.company} (${fmtDays(r.openDays)} old)`).join('; ')}.`)
+  }
+  return lines.join('\n')
+}
+
 function networkLine(): string {
   const contacts = read<Contact[]>('contacts', [])
   if (!contacts.length) return ''
@@ -234,8 +253,9 @@ function snapshot(): string {
       ? `Mock interviews:\n${mocks.map((m) => `- ${m.createdAt.slice(0, 10)} ${m.label}: ${m.debrief!.overall}/100, panel says ${DECISION_WORDS[m.debrief!.decision]}; patterns: ${m.debrief!.themes.slice(0, 2).join('; ')}`).join('\n')}`
       : '',
     networkLine(),
+    missedLine(apps),
     recentWins.length ? `Wins logged in the last three weeks:\n${recentWins.map((w) => `- ${w.at.slice(0, 10)}: ${w.text}`).join('\n')}` : 'No wins logged yet.',
-    `New relevant job openings on the radar: ${jobs.filter((j) => Date.now() - new Date(j.firstSeen).getTime() < 3 * 864e5).length} in the last 3 days.`
+    `New relevant job openings on the radar: ${jobs.filter((j) => !j.goneAt && Date.now() - new Date(j.firstSeen).getTime() < 3 * 864e5).length} in the last 3 days.`
   ].filter(Boolean).join('\n')
 }
 
@@ -404,11 +424,21 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       if (r.newJobs) {
         notify(`${r.newJobs} new role${r.newJobs === 1 ? '' : 's'} on your radar`, (r.highlights || []).join('\n'), 'jobs')
       }
+      if (r.closed) {
+        notify(`${r.closed} matching role${r.closed === 1 ? '' : 's'} just closed`, 'They came down before you applied. See what they were in Jobs → Missed, and catch the next ones sooner.', 'jobs', 'missed')
+      }
     } catch { /* tried again at the next tick */ }
   }
   setTimeout(() => { tick() }, 20_000)
   setInterval(() => { tick() }, 30 * 60_000)
 
+  // The saved copy of a listing's description (kept after it's taken down).
+  handle('jobs:cached', (jobId: string): JobCacheEntry | null => {
+    const hit = read<Record<string, JobCacheEntry>>('jobcache', {})[jobId]
+    if (hit) return hit
+    const app = read<Application[]>('applications', []).find((a) => a.jobId === jobId && a.jd?.trim())
+    return app ? { text: app.jd!, at: app.updatedAt } : null
+  })
   handle('jobs:dismiss', (id: string) => update<Job[]>('jobs', [], (jobs) => jobs.map((j) => (j.id === id ? { ...j, dismissed: true } : j))))
   handle('jobs:track', (jobId: string) => {
     const job = byId<Job>('jobs', jobId)
