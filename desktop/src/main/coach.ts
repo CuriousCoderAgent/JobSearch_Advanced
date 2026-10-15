@@ -449,6 +449,33 @@ export async function mockDebrief(
   }
 }
 
+// ---------- Outreach ----------
+
+export async function draftOutreach(
+  person: { name: string; title: string; location?: string; scope: 'india' | 'global'; why?: string },
+  companyName: string,
+  kind: 'linkedin' | 'email',
+  app?: Application
+): Promise<{ subject: string; message: string }> {
+  return coachParse('people: outreach draft', {
+    system: persona(),
+    effort: 'low',
+    maxTokens: 4000,
+    schema: z.object({ subject: z.string(), message: z.string() }),
+    content: [
+      `Draft a ${kind === 'linkedin' ? 'LinkedIn connection note' : 'short cold email'} from the candidate to ${person.name}, ${person.title} at ${companyName}${person.location ? ` (${person.location})` : ''}.`,
+      person.why ? `Why this person: ${person.why}` : '',
+      person.scope === 'global' ? 'They sit outside India but shape India hiring or expansion — frame the note around what the candidate would build in India.' : '',
+      app ? `The candidate is pursuing ${app.role} at ${companyName} (status: ${app.status}).${app.jd ? `\nJob description:\n${app.jd.slice(0, 4000)}` : ''}` : `There is no specific opening yet; the aim is a conversation about senior enterprise sales in India.`,
+      '',
+      kind === 'linkedin'
+        ? 'Under 300 characters (LinkedIn’s limit). One specific, credible line about the candidate, one reason this person, one small ask. Empty subject.'
+        : 'Subject line under 8 words. Body 90–150 words: why them, the candidate’s single most relevant proof with a number from the CV, a clear small ask (15 minutes, or who owns the role). Sign off with the candidate’s first name.',
+      'Sound like a senior peer, not a job seeker begging. No flattery, no clichés, no invented facts — [placeholders] for anything unknown.'
+    ].filter(Boolean).join('\n')
+  })
+}
+
 // ---------- CV tailoring ----------
 
 export async function tailorCv(base: CvVersion, app: Application) {

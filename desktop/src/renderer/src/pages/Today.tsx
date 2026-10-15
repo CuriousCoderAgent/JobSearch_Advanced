@@ -58,6 +58,17 @@ export default function Today() {
 
   const actions: { text: string; to: Parameters<typeof go>[0]; focus?: string }[] = []
   if (low) actions.push({ text: 'Talk it through with your coach — ten minutes, no agenda', to: 'coach', focus: BOOST })
+  const followUps = state.contacts
+    .filter((c) => ['contacted', 'intro-requested'].includes(c.status) && c.followUpDate && c.followUpDate <= state.today)
+    .sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9))
+  if (followUps.length) {
+    const c = followUps[0]
+    actions.push({ text: `Follow up with ${c.name} (${c.title || 'contact'}, ${c.companyName})${followUps.length > 1 ? ` — and ${followUps.length - 1} more follow-up${followUps.length > 2 ? 's' : ''} due` : ''}`, to: 'people' })
+  }
+  if (state.contacts.length && !state.contacts.some((c) => c.status !== 'to-contact')) {
+    const first = state.contacts.find((c) => c.priority === 1) ?? state.contacts[0]
+    actions.push({ text: `Start your outreach: ${first.name}, ${first.title} at ${first.companyName} is a priority-1 contact`, to: 'people' })
+  }
   for (const a of apps.filter((x) => x.status === 'interviewing').slice(0, 2)) {
     const qs = questions.filter((q) => q.applicationId === a.id)
     actions.push(qs.length

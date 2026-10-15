@@ -295,3 +295,14 @@ label.field .hint { font-weight: 450; color: var(--muted); }
   padding: 8px 14px; border-radius: 999px; background: rgba(5, 7, 13, 0.8); border: 1px solid var(--line-2); font-weight: 600; font-size: 13px;
 }
 .pulse { animation: pulse 1s infinite; }
+
+/* ---------- People ---------- */
+.register.people td { padding: 10px; }
+.status-select { width: 100%; padding: 6px 8px; font-size: 12.5px; border-radius: 8px; }
+.status-select.blue { border-color: rgba(124, 156, 255, 0.5); }
+.status-select.violet { border-color: rgba(183, 148, 246, 0.5); }
+.status-select.gold { border-color: rgba(245, 181, 68, 0.55); }
+.status-select.good { border-color: rgba(52, 211, 153, 0.55); }
+.status-select.bad { opacity: 0.6; }
+.card.clickable { cursor: pointer; transition: border-color 0.15s; }
+.card.clickable:hover { border-color: var(--line-2); }
