@@ -353,14 +353,29 @@ export interface CoachMemory {
 
 // ---------- People to reach at target companies ----------
 
-export type ContactStatus = 'to-contact' | 'contacted' | 'replied' | 'meeting' | 'referred' | 'not-relevant'
+// Outreach stages, matching the tracker in the contact-map workbook.
+export type ContactStatus =
+  | 'to-contact' | 'intro-requested' | 'contacted' | 'replied' | 'meeting' | 'referred'
+  | 'applied' | 'in-process' | 'closed' | 'not-relevant'
 export const CONTACT_STATUSES: { id: ContactStatus; label: string }[] = [
-  { id: 'to-contact', label: 'To contact' },
+  { id: 'to-contact', label: 'Not started' },
+  { id: 'intro-requested', label: 'Intro requested' },
   { id: 'contacted', label: 'Contacted' },
   { id: 'replied', label: 'Replied' },
-  { id: 'meeting', label: 'Meeting set' },
+  { id: 'meeting', label: 'Call scheduled' },
   { id: 'referred', label: 'Referred me' },
+  { id: 'applied', label: 'Applied' },
+  { id: 'in-process', label: 'In process' },
+  { id: 'closed', label: 'Closed' },
   { id: 'not-relevant', label: 'Not relevant' }
+]
+
+// Whether you're connected on LinkedIn — separate from the outreach stage.
+export type ConnectionStatus = 'not-connected' | 'requested' | 'connected'
+export const CONNECTION_STATUSES: { id: ConnectionStatus; label: string }[] = [
+  { id: 'not-connected', label: 'Not connected' },
+  { id: 'requested', label: 'Request sent' },
+  { id: 'connected', label: 'Connected' }
 ]
 
 export interface Contact {
@@ -372,18 +387,27 @@ export interface Contact {
   location?: string
   scope: 'india' | 'global'
   why?: string
+  // 1 = approach first, 2 = supporting route, 3 = secondary / exploratory.
+  priority?: 1 | 2 | 3
+  contactType?: string
+  // A caveat on the title or remit, e.g. "exact title needs confirmation".
+  roleCheck?: string
   // "low" when only a directory or data-broker page shows them in the role.
   confidence?: 'high' | 'low'
   email?: string
   // Where the email came from: published on a page the research read, the
   // company's public email format applied by you, or typed in by you.
   emailSource?: 'public' | 'pattern' | 'manual'
+  emailNote?: string
+  emailSourceUrl?: string
   linkedin?: string
   sourceUrl?: string
+  connection?: ConnectionStatus
   status: ContactStatus
   notes?: string
   lastContactedAt?: string
-  origin: 'research' | 'manual'
+  followUpDate?: string
+  origin: 'research' | 'manual' | 'import'
   addedAt: string
 }
 
@@ -392,6 +416,19 @@ export interface OrgPeopleMeta {
   indiaPresence?: string
   emailPattern?: { pattern: string; sourceUrl: string }
   dropped: number
+  // From an imported contact map's company index.
+  category?: string
+  fit?: string
+  approach?: string
+  firstContact?: string
+}
+
+export interface ContactImportResult {
+  file: string
+  added: number
+  updated: number
+  companiesAdded: string[]
+  skipped: number
 }
 
 export interface PeopleProgress {

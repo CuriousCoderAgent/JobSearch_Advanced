@@ -304,3 +304,5 @@ label.field .hint { font-weight: 450; color: var(--muted); }
 .status-select.gold { border-color: rgba(245, 181, 68, 0.55); }
 .status-select.good { border-color: rgba(52, 211, 153, 0.55); }
 .status-select.bad { opacity: 0.6; }
+.card.clickable { cursor: pointer; transition: border-color 0.15s; }
+.card.clickable:hover { border-color: var(--line-2); }

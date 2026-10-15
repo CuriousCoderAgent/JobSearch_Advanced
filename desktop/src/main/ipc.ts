@@ -10,9 +10,10 @@ import { getJobDescription } from './engine/jd'
 import { importCvFile, markdownToDocx, markdownToPdf } from './documents'
 import * as coach from './coach'
 import { applyEmailPattern, researchCompany } from './people'
+import { importContacts } from './contactImport'
 import { AI_GTM_QUESTIONS, SEED_QUESTIONS } from './seeds'
 import {
-  APP_STATUSES, CONTACT_STATUSES, localDay,
+  APP_STATUSES, CONNECTION_STATUSES, CONTACT_STATUSES, localDay,
   type Contact, type OrgPeopleMeta, type PeopleProgress,
   type Application, type AppStatus, type ChatMessage, type CoachMemory, type Company, type CvVersion, type DailyBrief,
   type Job, type MockDecision, type MockSession, type MockTurn, type MoodEntry, type PracticeAttempt, type Profile,
@@ -804,24 +805,64 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   handle('people:save', (c: Contact) => {
     const prev = read<Contact[]>('contacts', []).find((x) => x.id === c.id)
     const next = { ...c }
-    if (prev && prev.status !== next.status && next.status === 'contacted' && !next.lastContactedAt) next.lastContactedAt = nowIso()
+    if (prev && prev.status !== next.status && ['contacted', 'intro-requested'].includes(next.status)) {
+      // Reaching out starts the clock: a follow-up a week later unless you set one.
+      next.lastContactedAt = nowIso()
+      if (!next.followUpDate || next.followUpDate < today()) {
+        const d = new Date(); d.setDate(d.getDate() + 7); next.followUpDate = localDay(d)
+      }
+    }
     if (prev && prev.email !== next.email && next.email && next.emailSource !== 'pattern') next.emailSource = 'manual'
     if (prev && prev.status !== next.status) {
       if (next.status === 'replied') addWin(`${next.name} (${next.companyName}) replied to your outreach`)
-      if (next.status === 'meeting') addWin(`Meeting set with ${next.name}, ${next.title} at ${next.companyName}`)
+      if (next.status === 'meeting') addWin(`Call set with ${next.name}, ${next.title} at ${next.companyName}`)
       if (next.status === 'referred') addWin(`${next.name} referred you at ${next.companyName}`)
+    }
+    if (prev && prev.connection !== next.connection && next.connection === 'connected') {
+      addWin(`Connected with ${next.name} (${next.companyName}) on LinkedIn`)
     }
     return upsert('contacts', next)
   })
-  handle('people:add', (companyId: string, p: Partial<Contact>) => {
-    const company = byId<Company>('companies', companyId)
-    if (!p.name?.trim()) throw new Error('Add a name.')
-    return upsert<Contact>('contacts', {
-      id: newId(), companyId, companyName: company.name, name: p.name.trim(), title: p.title?.trim() || '',
-      location: p.location?.trim() || undefined, scope: p.scope ?? 'india', email: p.email?.trim() || undefined,
-      emailSource: p.email?.trim() ? 'manual' : undefined, linkedin: p.linkedin?.trim() || undefined,
-      status: 'to-contact', notes: p.notes, origin: 'manual', addedAt: nowIso()
-    })
+  // Add a person to any company — one on the watch list, or a new one (added to the watch list too).
+  handle('people:add', (company: { id?: string; name?: string }, p: Partial<Contact>) => {
+    if (!p.name?.trim()) throw new Error('Add the person’s name.')
+    const existing = company.id
+      ? byId<Company>('companies', company.id)
+      : read<Company[]>('companies', []).find((c) => c.name.toLowerCase() === company.name?.trim().toLowerCase())
+    const co = existing ?? addCompany(company.name ?? '')
+    const linkedin = p.linkedin?.trim()
+    if (linkedin && !/^https?:\/\/([a-z]+\.)?linkedin\.com\//i.test(linkedin)) throw new Error('That doesn’t look like a LinkedIn link.')
+    return {
+      contact: upsert<Contact>('contacts', {
+        id: newId(), companyId: co.id, companyName: co.name, name: p.name.trim(), title: p.title?.trim() || '',
+        location: p.location?.trim() || undefined, scope: p.scope ?? 'india', priority: p.priority,
+        contactType: p.contactType?.trim() || undefined, email: p.email?.trim() || undefined,
+        emailSource: p.email?.trim() ? 'manual' : undefined, linkedin: linkedin || undefined,
+        connection: p.connection ?? 'not-connected', status: p.status ?? 'to-contact', notes: p.notes,
+        origin: 'manual', addedAt: nowIso()
+      }),
+      company: existing ? null : co
+    }
+  })
+  // Bring in a contact map (.xlsx or .csv). Re-importing updates people already there.
+  handle('people:import', async (path?: string) => {
+    let file = path
+    if (!file) {
+      const pick = await dialog.showOpenDialog(getWindow()!, {
+        title: 'Import a contact map', properties: ['openFile'],
+        filters: [{ name: 'Excel or CSV', extensions: ['xlsx', 'csv'] }]
+      })
+      if (pick.canceled || !pick.filePaths[0]) return null
+      file = pick.filePaths[0]
+    }
+    if (!/\.(xlsx|csv)$/i.test(file) || !existsSync(file)) throw new Error('Pick an Excel (.xlsx) or CSV file.')
+    const result = await importContacts(file, (name) => addCompany(name))
+    return {
+      result,
+      contacts: read<Contact[]>('contacts', []),
+      orgPeople: read<Record<string, OrgPeopleMeta>>('orgpeople', {}),
+      companies: read<Company[]>('companies', [])
+    }
   })
   handle('people:remove', (id: string) => remove('contacts', id))
   handle('people:applyPattern', (id: string) => {
@@ -849,10 +890,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const cell = (v: string | undefined): string => `"${(v ?? '').replace(/"/g, '""')}"`
     const status = (s: Contact['status']): string => CONTACT_STATUSES.find((x) => x.id === s)?.label ?? s
     const emailNote = (c: Contact): string => (c.emailSource === 'pattern' ? 'from company format (unverified)' : c.emailSource === 'public' ? 'published' : c.emailSource === 'manual' ? 'added by you' : '')
+    const connection = (c: Contact): string => CONNECTION_STATUSES.find((x) => x.id === (c.connection ?? 'not-connected'))?.label ?? ''
     const rows = [...contacts]
-      .sort((a, b) => a.companyName.localeCompare(b.companyName) || a.scope.localeCompare(b.scope) || a.name.localeCompare(b.name))
-      .map((c) => [c.companyName, c.name, c.title, c.location, c.scope === 'india' ? 'India' : 'International', c.email, emailNote(c), c.linkedin, status(c.status), c.lastContactedAt?.slice(0, 10), c.why, c.sourceUrl, c.notes].map(cell).join(','))
-    writeFileSync(pick.filePath, '﻿' + ['Company,Name,Title,Location,Focus,Email,Email source,LinkedIn,Status,Last contacted,Why,Source,Notes', ...rows].join('\r\n'), 'utf8')
+      .sort((a, b) => a.companyName.localeCompare(b.companyName) || (a.priority ?? 9) - (b.priority ?? 9) || a.name.localeCompare(b.name))
+      .map((c) => [c.companyName, c.name, c.title, c.location, c.scope === 'india' ? 'India' : 'International', c.priority ? String(c.priority) : '', c.contactType,
+        c.email, c.emailNote || emailNote(c), c.linkedin, connection(c), status(c.status), c.lastContactedAt?.slice(0, 10), c.followUpDate, c.why, c.roleCheck, c.sourceUrl, c.notes].map(cell).join(','))
+    writeFileSync(pick.filePath, '﻿' + ['Company,Name,Designation,Location,Focus,Priority,Contact type,Email,Email status,LinkedIn,Connected,Outreach status,Last contacted,Follow-up date,Why reach out,Role check,Source,Notes', ...rows].join('\r\n'), 'utf8')
     shell.showItemInFolder(pick.filePath)
     return pick.filePath
   })
