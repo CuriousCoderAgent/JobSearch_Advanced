@@ -56,6 +56,9 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['coreweave'], ats('greenhouse', 'coreweave')],
   [['cerebras', 'cerebras systems'], ats('ashby', 'cerebras')],
   [['langchain'], ats('ashby', 'langchain')],
+  // Verified 2026-10-15.
+  [['cursor', 'anysphere', 'cursor ai'], ats('ashby', 'cursor')],
+  [['abnormal', 'abnormal ai', 'abnormal security', 'abnormalsecurity'], ats('greenhouse', 'abnormalsecurity')],
 
   // Tech-led platforms with India enterprise teams (verified 2026-09-28).
   [['datadog'], ats('greenhouse', 'datadog')],
