@@ -1,10 +1,11 @@
 import {
-  BookOpenCheck, FileText, Flame, KanbanSquare, MessageCircle, Mic, Radar, Settings as SettingsIcon, Sun
+  BookOpenCheck, Contact, FileText, Flame, KanbanSquare, MessageCircle, Mic, Radar, Settings as SettingsIcon, Sun
 } from 'lucide-react'
 import { DeskProvider, useDesk, type Page } from './lib/desk'
 import { usd } from './components/ui'
 import Today from './pages/Today'
 import Jobs from './pages/Jobs'
+import People from './pages/People'
 import Applications from './pages/Applications'
 import CvStudio from './pages/CvStudio'
 import Prep from './pages/Prep'
@@ -16,6 +17,7 @@ import Onboarding from './pages/Onboarding'
 const NAV: { id: Page; label: string; icon: typeof Sun }[] = [
   { id: 'today', label: 'Today', icon: Sun },
   { id: 'jobs', label: 'Jobs', icon: Radar },
+  { id: 'people', label: 'People', icon: Contact },
   { id: 'applications', label: 'Applications', icon: KanbanSquare },
   { id: 'cvs', label: 'CV Studio', icon: FileText },
   { id: 'prep', label: 'Interview Prep', icon: BookOpenCheck },
@@ -61,6 +63,7 @@ function Shell() {
       <main className="main" key={page}>
         {page === 'today' && <Today />}
         {page === 'jobs' && <Jobs />}
+        {page === 'people' && <People />}
         {page === 'applications' && <Applications />}
         {page === 'cvs' && <CvStudio />}
         {page === 'prep' && <Prep />}

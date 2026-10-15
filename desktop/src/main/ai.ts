@@ -11,12 +11,15 @@ import type { Settings, UsageEntry } from '../shared/types'
 // you asked for the job engine to be as cheap as possible.
 export const COACH_MODEL = 'claude-opus-5'
 export const BULK_MODEL = 'claude-haiku-4-5'
+// Finding real people with web search: accuracy matters more than anything here.
+export const RESEARCH_MODEL = 'claude-opus-5-5'
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
 // USD per million tokens (input, output, cache read, cache write). Responses
 // can name a dated snapshot ("claude-haiku-4-5-20251001") or a fallback model,
 // so prices are matched by prefix.
 const PRICES: Record<string, [number, number, number, number]> = {
+  'claude-opus-5-5': [4, 20, 0.2, 5],
   'claude-opus-5': [5, 25, 0.5, 6.25],
   'claude-opus-4': [5, 25, 0.5, 6.25],
   'claude-fable-5': [10, 50, 1, 12.5],
@@ -232,6 +235,78 @@ export async function bulkParse<S extends z.ZodType>(
     logUsage(feature, res.model, res.usage)
     if (!res.parsed_output) throw new AiError('Unexpected response while reading jobs.')
     return res.parsed_output as z.infer<S>
+  } catch (err) {
+    throw friendly(err)
+  }
+}
+
+// Web research that ends in one structured answer: Claude searches, then calls
+// the `record` tool with its findings. Alongside the validated findings it
+// returns `evidence` — the raw text of what the searches actually returned —
+// so callers can check every claimed source against it instead of trusting it.
+export async function webResearch<S extends z.ZodType>(
+  feature: string,
+  opts: {
+    system: string
+    content: string
+    record: { name: string; description: string; inputSchema: Anthropic.Beta.BetaTool.InputSchema; validate: S }
+    maxSearches: number
+  }
+): Promise<{ result: z.infer<S>; evidence: string }> {
+  checkBudget()
+  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: opts.content }]
+  const evidence: string[] = []
+  // Search results only: never the model's own text or search queries, which
+  // could contain a URL it made up.
+  const keep = (b: Anthropic.Beta.BetaContentBlock): void => {
+    if (b.type === 'text') {
+      for (const c of b.citations ?? []) if ('url' in c && c.url) evidence.push(c.url)
+    } else if (!['thinking', 'redacted_thinking', 'tool_use', 'server_tool_use'].includes(b.type)) {
+      evidence.push(JSON.stringify(b, (k, v) => (k === 'encrypted_content' || k === 'encrypted_index' ? undefined : v)))
+    }
+  }
+  let jsonRetries = 0
+  try {
+    for (let turn = 0; turn < 6; turn++) {
+      let final: Anthropic.Beta.BetaMessage
+      try {
+        final = await client().beta.messages.stream({
+          model: RESEARCH_MODEL,
+          max_tokens: 32000,
+          betas: [FALLBACK_BETA],
+          fallbacks: 'default',
+          thinking: { type: 'adaptive' },
+          output_config: { effort: 'medium' },
+          // With caching on, the server caches after each search result, so the
+          // research loop re-reads earlier results at the cache price.
+          cache_control: { type: 'ephemeral' },
+          system: opts.system,
+          tools: [
+            { type: 'web_search_20260209', name: 'web_search', max_uses: opts.maxSearches },
+            { name: opts.record.name, description: opts.record.description, input_schema: opts.record.inputSchema, eager_input_streaming: true }
+          ],
+          messages
+        }).finalMessage()
+      } catch (err) {
+        // An unparseable streamed tool input rejects here; re-issue that turn.
+        if (err instanceof Anthropic.APIError || jsonRetries++ >= 2) throw err
+        continue
+      }
+      logUsage(feature, final.model, final.usage)
+      if (final.stop_reason === 'refusal') throw new AiError('Claude declined this research request.')
+      final.content.forEach(keep)
+      const rec = final.content.find((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use' && b.name === opts.record.name)
+      if (rec) {
+        if (final.stop_reason === 'max_tokens') throw new AiError('The research ran too long. Please try again.')
+        const parsed = opts.record.validate.safeParse(rec.input)
+        if (!parsed.success) throw new AiError('The research came back in an unexpected shape. Please try again.')
+        return { result: parsed.data, evidence: evidence.join('\n') }
+      }
+      messages.push({ role: 'assistant', content: final.content })
+      // A paused server-tool turn resumes as-is; a finished one is asked once to record.
+      if (final.stop_reason !== 'pause_turn') messages.push({ role: 'user', content: `Now call ${opts.record.name} with what you found.` })
+    }
+    throw new AiError('The research did not finish. Please try again.')
   } catch (err) {
     throw friendly(err)
   }

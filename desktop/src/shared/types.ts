@@ -351,6 +351,58 @@ export interface CoachMemory {
   at: string
 }
 
+// ---------- People to reach at target companies ----------
+
+export type ContactStatus = 'to-contact' | 'contacted' | 'replied' | 'meeting' | 'referred' | 'not-relevant'
+export const CONTACT_STATUSES: { id: ContactStatus; label: string }[] = [
+  { id: 'to-contact', label: 'To contact' },
+  { id: 'contacted', label: 'Contacted' },
+  { id: 'replied', label: 'Replied' },
+  { id: 'meeting', label: 'Meeting set' },
+  { id: 'referred', label: 'Referred me' },
+  { id: 'not-relevant', label: 'Not relevant' }
+]
+
+export interface Contact {
+  id: string
+  companyId: string
+  companyName: string
+  name: string
+  title: string
+  location?: string
+  scope: 'india' | 'global'
+  why?: string
+  // "low" when only a directory or data-broker page shows them in the role.
+  confidence?: 'high' | 'low'
+  email?: string
+  // Where the email came from: published on a page the research read, the
+  // company's public email format applied by you, or typed in by you.
+  emailSource?: 'public' | 'pattern' | 'manual'
+  linkedin?: string
+  sourceUrl?: string
+  status: ContactStatus
+  notes?: string
+  lastContactedAt?: string
+  origin: 'research' | 'manual'
+  addedAt: string
+}
+
+export interface OrgPeopleMeta {
+  researchedAt: string
+  indiaPresence?: string
+  emailPattern?: { pattern: string; sourceUrl: string }
+  dropped: number
+}
+
+export interface PeopleProgress {
+  running: boolean
+  done: number
+  total: number
+  current?: string
+  added?: number
+  error?: string
+}
+
 export interface SweepProgress {
   running: boolean
   done: number
@@ -378,6 +430,9 @@ export interface BootstrapState {
   questions: Question[]
   practice: PracticeAttempt[]
   mocks: MockSession[]
+  contacts: Contact[]
+  orgPeople: Record<string, OrgPeopleMeta>
+  peopleProgress: PeopleProgress | null
   usage: UsageSummary
   brief: DailyBrief | null
   chat: ChatMessage[]

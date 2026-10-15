@@ -9,9 +9,11 @@ import { runSweep, DEFAULT_EXCLUDE, DEFAULT_INCLUDE, EXCLUDE_ADDED_V2, INCLUDE_A
 import { getJobDescription } from './engine/jd'
 import { importCvFile, markdownToDocx, markdownToPdf } from './documents'
 import * as coach from './coach'
+import { applyEmailPattern, researchCompany } from './people'
 import { AI_GTM_QUESTIONS, SEED_QUESTIONS } from './seeds'
 import {
-  APP_STATUSES, localDay,
+  APP_STATUSES, CONTACT_STATUSES, localDay,
+  type Contact, type OrgPeopleMeta, type PeopleProgress,
   type Application, type AppStatus, type ChatMessage, type CoachMemory, type Company, type CvVersion, type DailyBrief,
   type Job, type MockDecision, type MockSession, type MockTurn, type MoodEntry, type PracticeAttempt, type Profile,
   type Question, type Settings, type SweepProgress,
@@ -151,6 +153,8 @@ function usageSummary(): UsageSummary {
 }
 
 const MOOD_WORDS = ['', 'rough', 'low', 'okay', 'good', 'great']
+// Bulk people research in progress (kept here so the page can rejoin it after navigation).
+let peopleProgress: PeopleProgress | null = null
 const DECISION_WORDS: Record<MockDecision, string> = { 'strong-yes': 'strong yes', yes: 'yes', 'lean-no': 'lean no', no: 'no' }
 
 // Questions for a mock interview: an opener, the company-specific questions
@@ -180,6 +184,16 @@ function planMock(app: Application | undefined, count: number): Question[] {
   general((q) => CORE_CATEGORIES.includes(q.category)).forEach(add)
   if (closer) picked.push(closer)
   return picked
+}
+
+function networkLine(): string {
+  const contacts = read<Contact[]>('contacts', [])
+  if (!contacts.length) return ''
+  const count = (s: Contact['status']): number => contacts.filter((c) => c.status === s).length
+  const warm = contacts.filter((c) => ['replied', 'meeting', 'referred'].includes(c.status))
+  return `Networking: ${contacts.length} people mapped at target companies; ${count('contacted')} contacted, ` +
+    `${count('replied')} replied, ${count('meeting')} meetings, ${count('referred')} referrals.` +
+    (warm.length ? ` Warm: ${warm.slice(0, 6).map((c) => `${c.name} (${c.title}, ${c.companyName})`).join('; ')}.` : '')
 }
 
 // Plain-text picture of the search, handed to the coach for briefs and chat.
@@ -218,6 +232,7 @@ function snapshot(): string {
     mocks.length
       ? `Mock interviews:\n${mocks.map((m) => `- ${m.createdAt.slice(0, 10)} ${m.label}: ${m.debrief!.overall}/100, panel says ${DECISION_WORDS[m.debrief!.decision]}; patterns: ${m.debrief!.themes.slice(0, 2).join('; ')}`).join('\n')}`
       : '',
+    networkLine(),
     recentWins.length ? `Wins logged in the last three weeks:\n${recentWins.map((w) => `- ${w.at.slice(0, 10)}: ${w.text}`).join('\n')}` : 'No wins logged yet.',
     `New relevant job openings on the radar: ${jobs.filter((j) => Date.now() - new Date(j.firstSeen).getTime() < 3 * 864e5).length} in the last 3 days.`
   ].filter(Boolean).join('\n')
@@ -235,6 +250,9 @@ function bootstrap(): BootstrapState {
     questions: ensureQuestions(),
     practice: read<PracticeAttempt[]>('practice', []).map(({ words: _w, ...p }) => ({ ...p, words: [] })),
     mocks: read<MockSession[]>('mocks', []),
+    contacts: read<Contact[]>('contacts', []),
+    orgPeople: read<Record<string, OrgPeopleMeta>>('orgpeople', {}),
+    peopleProgress,
     usage: usageSummary(),
     brief: read<DailyBrief | null>('brief', null),
     chat: read<ChatMessage[]>('chat', []),
@@ -745,6 +763,98 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   handle('mock:mediaUrl', (sessionId: string, turnId: string) => {
     const t = byId<MockSession>('mocks', sessionId).turns.find((x) => x.id === turnId)
     return t?.mediaFile && existsSync(t.mediaFile) ? `media://${encodeURIComponent(t.mediaFile)}` : null
+  })
+
+  // People to reach
+  handle('people:research', async (companyId: string) => {
+    if (peopleProgress?.running) throw new Error('A research run is already going — wait for it to finish.')
+    const company = byId<Company>('companies', companyId)
+    return researchCompany(company)
+  })
+  // Research many companies in the background; the page shows progress and can be left.
+  handle('people:researchMany', (companyIds: string[]) => {
+    if (peopleProgress?.running) throw new Error('A research run is already going.')
+    const companies = read<Company[]>('companies', []).filter((c) => companyIds.includes(c.id))
+    if (!companies.length) throw new Error('Pick at least one company.')
+    peopleProgress = { running: true, done: 0, total: companies.length, added: 0 }
+    send('people:progress', peopleProgress)
+    void (async () => {
+      for (const c of companies) {
+        peopleProgress = { ...peopleProgress!, current: c.name }
+        send('people:progress', peopleProgress)
+        try {
+          const r = await researchCompany(c)
+          peopleProgress = { ...peopleProgress!, added: (peopleProgress!.added ?? 0) + r.added }
+        } catch (e) {
+          // Budget or key problems stop the run; a one-off failure skips that company.
+          const msg = (e as Error).message
+          if (/budget|API key|rejected|access/i.test(msg)) { peopleProgress = { ...peopleProgress!, error: msg }; break }
+          peopleProgress = { ...peopleProgress!, error: `${c.name}: ${msg}` }
+        }
+        peopleProgress = { ...peopleProgress!, done: peopleProgress!.done + 1 }
+        send('people:progress', peopleProgress)
+      }
+      peopleProgress = { ...peopleProgress!, running: false, current: undefined }
+      send('people:progress', peopleProgress)
+      const added = peopleProgress.added ?? 0
+      if (added) notify(`Mapped ${added} people at your target companies`, 'Open People to see who to reach out to.', 'people')
+    })()
+    return peopleProgress
+  })
+  handle('people:save', (c: Contact) => {
+    const prev = read<Contact[]>('contacts', []).find((x) => x.id === c.id)
+    const next = { ...c }
+    if (prev && prev.status !== next.status && next.status === 'contacted' && !next.lastContactedAt) next.lastContactedAt = nowIso()
+    if (prev && prev.email !== next.email && next.email && next.emailSource !== 'pattern') next.emailSource = 'manual'
+    if (prev && prev.status !== next.status) {
+      if (next.status === 'replied') addWin(`${next.name} (${next.companyName}) replied to your outreach`)
+      if (next.status === 'meeting') addWin(`Meeting set with ${next.name}, ${next.title} at ${next.companyName}`)
+      if (next.status === 'referred') addWin(`${next.name} referred you at ${next.companyName}`)
+    }
+    return upsert('contacts', next)
+  })
+  handle('people:add', (companyId: string, p: Partial<Contact>) => {
+    const company = byId<Company>('companies', companyId)
+    if (!p.name?.trim()) throw new Error('Add a name.')
+    return upsert<Contact>('contacts', {
+      id: newId(), companyId, companyName: company.name, name: p.name.trim(), title: p.title?.trim() || '',
+      location: p.location?.trim() || undefined, scope: p.scope ?? 'india', email: p.email?.trim() || undefined,
+      emailSource: p.email?.trim() ? 'manual' : undefined, linkedin: p.linkedin?.trim() || undefined,
+      status: 'to-contact', notes: p.notes, origin: 'manual', addedAt: nowIso()
+    })
+  })
+  handle('people:remove', (id: string) => remove('contacts', id))
+  handle('people:applyPattern', (id: string) => {
+    const c = byId<Contact>('contacts', id)
+    const pattern = read<Record<string, OrgPeopleMeta>>('orgpeople', {})[c.companyId]?.emailPattern?.pattern
+    if (!pattern) throw new Error(`No public email format is known for ${c.companyName}.`)
+    const email = applyEmailPattern(pattern, c.name)
+    if (!email) throw new Error(`The format “${pattern}” doesn’t fit this name — add the email yourself.`)
+    return upsert('contacts', { ...c, email, emailSource: 'pattern' as const })
+  })
+  handle('people:draft', async (id: string, kind: 'linkedin' | 'email') => {
+    const c = byId<Contact>('contacts', id)
+    const app = read<Application[]>('applications', [])
+      .filter((a) => a.company.toLowerCase() === c.companyName.toLowerCase() && a.status !== 'closed')
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+    return coach.draftOutreach(c, c.companyName, kind, app)
+  })
+  handle('people:exportCsv', async () => {
+    const contacts = read<Contact[]>('contacts', [])
+    if (!contacts.length) throw new Error('No people to export yet.')
+    const pick = await dialog.showSaveDialog(getWindow()!, {
+      defaultPath: join(deskRoot(), 'People to reach.csv'), filters: [{ name: 'CSV', extensions: ['csv'] }]
+    })
+    if (pick.canceled || !pick.filePath) return null
+    const cell = (v: string | undefined): string => `"${(v ?? '').replace(/"/g, '""')}"`
+    const status = (s: Contact['status']): string => CONTACT_STATUSES.find((x) => x.id === s)?.label ?? s
+    const emailNote = (c: Contact): string => (c.emailSource === 'pattern' ? 'from company format (unverified)' : c.emailSource === 'public' ? 'published' : c.emailSource === 'manual' ? 'added by you' : '')
+    const rows = [...contacts]
+      .sort((a, b) => a.companyName.localeCompare(b.companyName) || a.scope.localeCompare(b.scope) || a.name.localeCompare(b.name))
+      .map((c) => [c.companyName, c.name, c.title, c.location, c.scope === 'india' ? 'India' : 'International', c.email, emailNote(c), c.linkedin, status(c.status), c.lastContactedAt?.slice(0, 10), c.why, c.sourceUrl, c.notes].map(cell).join(','))
+    writeFileSync(pick.filePath, '﻿' + ['Company,Name,Title,Location,Focus,Email,Email source,LinkedIn,Status,Last contacted,Why,Source,Notes', ...rows].join('\r\n'), 'utf8')
+    shell.showItemInFolder(pick.filePath)
+    return pick.filePath
   })
 
   // Coach
