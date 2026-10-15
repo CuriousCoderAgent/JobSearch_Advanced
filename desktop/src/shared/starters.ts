@@ -5,7 +5,8 @@ export const STARTER_GROUPS: { label: string; names: string[] }[] = [
   {
     label: 'AI-first',
     names: ['OpenAI', 'Anthropic', 'Sarvam AI', 'Cohere', 'ElevenLabs', 'Perplexity', 'Scale AI', 'Glean',
-      'Observe.AI', 'Deepgram', 'Writer', 'Harvey', 'Sierra', 'Decagon', 'Together AI', 'CoreWeave', 'Cerebras', 'Nvidia']
+      'Observe.AI', 'Deepgram', 'Writer', 'Harvey', 'Sierra', 'Decagon', 'Together AI', 'CoreWeave', 'Cerebras', 'Nvidia',
+      'Cursor', 'LangChain', 'Abnormal AI']
   },
   {
     label: 'Data & AI platforms',

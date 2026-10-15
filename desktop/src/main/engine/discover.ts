@@ -88,6 +88,10 @@ export async function discoverSource(company: Company, allowPaidSearch: boolean)
 
   // 1. A URL you gave us.
   if (company.careersUrl) {
+    // A job-board link (job-boards.greenhouse.io/x, jobs.ashbyhq.com/x, ...)
+    // names its own feed; the board page itself often doesn't link back to it.
+    const direct = fingerprint(company.careersUrl, company.careersUrl)
+    if (direct) return direct
     const { src, html } = await fingerprintUrl(company.careersUrl)
     if (src) return src
     if (isUsefulPage(html)) return { type: 'page', url: company.careersUrl, detectedAt: now }
