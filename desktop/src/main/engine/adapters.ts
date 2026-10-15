@@ -342,4 +342,89 @@ export async function fetchJobDescription(url: string, hint: JdHint = {}): Promi
   const text = htmlToText(main)
   return text.length > 400 ? { text: text.slice(0, 30000), generic: true } : null
 }
+
+// ---------- Is a listing still up? ----------
+// A role can drop out of a feed without closing: Workday, Oracle and Amazon are
+// searched with a few keywords and only the first pages are read, and
+// SmartRecruiters stops at 300. So before a role counts as closed, its own
+// listing is checked. "unknown" means the check couldn't tell either way.
+
+export type ListingStatus = 'open' | 'gone' | 'unknown'
+
+async function probe(url: string, init: RequestInit = {}): Promise<{ status: number; json: any; finalUrl: string }> {
+  try {
+    const res = await fetch(url, {
+      ...init,
+      redirect: 'follow',
+      headers: { 'User-Agent': UA, Accept: 'application/json', ...(init.headers || {}) },
+      signal: AbortSignal.timeout(15000)
+    })
+    let json: any = null
+    try { json = await res.json() } catch { /* not JSON */ }
+    return { status: res.status, json, finalUrl: res.url }
+  } catch {
+    return { status: 0, json: null, finalUrl: url }
+  }
+}
+
+const verdict = (status: number, isOpen: () => boolean): ListingStatus =>
+  status === 404 || status === 410 ? 'gone' : status >= 200 && status < 300 ? (isOpen() ? 'open' : 'gone') : 'unknown'
+
+export async function listingStatus(url: string, hint: JdHint = {}): Promise<ListingStatus> {
+  let u: URL
+  try { u = new URL(url) } catch { return 'unknown' }
+  const host = u.hostname.toLowerCase()
+  const parts = u.pathname.split('/').filter(Boolean)
+
+  const ghId = u.searchParams.get('gh_jid') ||
+    (/greenhouse\.io$/.test(host) && parts.includes('jobs') ? parts[parts.indexOf('jobs') + 1] : null) ||
+    (hint.source?.type === 'greenhouse' && hint.externalId ? hint.externalId.split('-').pop() : null)
+  const ghSlug = /greenhouse\.io$/.test(host) && parts[0] !== 'embed' ? parts[0] : hint.source?.type === 'greenhouse' ? hint.source.slug : undefined
+  if (ghId && ghSlug) {
+    const r = await probe(`https://boards-api.greenhouse.io/v1/boards/${ghSlug}/jobs/${ghId}`)
+    return verdict(r.status, () => !!r.json?.id)
+  }
+  if (host === 'jobs.lever.co' && parts.length >= 2) {
+    const r = await probe(`https://api.lever.co/v0/postings/${parts[0]}/${parts[1]}`)
+    return verdict(r.status, () => !!r.json?.id)
+  }
+  if (host === 'jobs.ashbyhq.com' && parts.length >= 2) {
+    // Ashby's board lists every open role, so absence from it means closed.
+    const r = await probe(`https://api.ashbyhq.com/posting-api/job-board/${parts[0]}`)
+    return r.status === 200 && Array.isArray(r.json?.jobs) ? (r.json.jobs.some((x: any) => x.id === parts[1]) ? 'open' : 'gone') : 'unknown'
+  }
+  if (host === 'jobs.smartrecruiters.com' && parts.length >= 2) {
+    const id = parts[1].match(/^\d+/)?.[0]
+    if (id) {
+      const r = await probe(`https://api.smartrecruiters.com/v1/companies/${parts[0]}/postings/${id}`)
+      return verdict(r.status, () => !!r.json?.id && r.json?.active !== false)
+    }
+  }
+  if (host.endsWith('.myworkdayjobs.com')) {
+    const at = parts.indexOf('job')
+    if (at > 0) {
+      const r = await probe(`https://${host}/wday/cxs/${host.split('.')[0]}/${parts[at - 1]}/${parts.slice(at).join('/')}`)
+      // Workday answers 403 "permission denied" (S22) for a posting that exists
+      // but is no longer public — i.e. closed. A made-up id gets 404 (S21).
+      if (r.status === 403 && r.json?.errorCode === 'S22') return 'gone'
+      return verdict(r.status, () => !!r.json?.jobPostingInfo && r.json.jobPostingInfo.canApply !== false)
+    }
+  }
+  if (host.endsWith('.oraclecloud.com') && parts.includes('sites') && parts.includes('job')) {
+    const site = parts[parts.indexOf('sites') + 1]
+    const id = parts[parts.indexOf('job') + 1]
+    const finder = `ById;Id="${id.replace(/"/g, '')}",siteNumber=${site}`
+    const r = await probe(`https://${host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?onlyData=true&finder=${encodeURIComponent(finder)}`)
+    return r.status === 200 && Array.isArray(r.json?.items) ? (r.json.items.length ? 'open' : 'gone') : 'unknown'
+  }
+  // Anything else: a 404/410 is closed; a page that redirects somewhere without
+  // the role's id in it (back to a search page) usually is too.
+  const r = await probe(url, { headers: { Accept: 'text/html' } })
+  if (r.status === 404 || r.status === 410) return 'gone'
+  const id = parts.find((p) => /\d{5,}/.test(p))
+  if (r.status === 200 && id && !r.finalUrl.includes(id)) return 'gone'
+  // amazon.jobs sends closed roles back to search; a role page that stays put is live.
+  if (host.endsWith('amazon.jobs') && r.status === 200 && id) return 'open'
+  return 'unknown'
+}
 /* eslint-enable @typescript-eslint/no-explicit-any */

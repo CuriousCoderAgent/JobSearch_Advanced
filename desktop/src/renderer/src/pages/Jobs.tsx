@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, Check, ExternalLink, EyeOff, Plus, Radar, RefreshCw, Search, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowRight, Building2, Check, ExternalLink, EyeOff, Plus, Radar, RefreshCw, Search, Sparkles, Trash2 } from 'lucide-react'
 import { call, onEvent, useDesk } from '../lib/desk'
 import { Avatar, Empty, Spinner, daysAgo, fmtDate } from '../components/ui'
 import { STARTER_GROUPS } from '../../../shared/starters'
 import type { Application, Company, SweepProgress } from '../../../shared/types'
+import { missedSummary } from '../../../shared/missed'
+import MissedRoles from './MissedRoles'
 
 // One-click watch lists: AI-first companies and the tech-led platforms that
 // hire senior enterprise sellers in India. All are on free job feeds.
@@ -53,7 +55,8 @@ const SOURCE_LABEL: Record<string, [string, string]> = {
 
 export default function Jobs() {
   const { state, patch, refresh, run, toast, go, focus } = useDesk()
-  const [tab, setTab] = useState<'openings' | 'companies'>(focus === 'starters' || !state.companies.length ? 'companies' : 'openings')
+  const [tab, setTab] = useState<'openings' | 'missed' | 'companies'>(
+    focus === 'missed' ? 'missed' : focus === 'starters' || !state.companies.length ? 'companies' : 'openings')
   const [progress, setProgress] = useState<SweepProgress | null>(null)
   const [q, setQ] = useState('')
   const [company, setCompany] = useState('all')
@@ -69,16 +72,20 @@ export default function Jobs() {
     const r = await run(() => call<SweepProgress>('jobs:sweep'))
     await refresh()
     if (r) toast(r.newJobs ? `Sweep done — ${r.newJobs} new matching role${r.newJobs === 1 ? '' : 's'}.` : 'Sweep done — no new matches this time.', 'good')
+    if (r?.closed) toast(`${r.closed} matching role${r.closed === 1 ? '' : 's'} closed before you applied — see Missed.`)
     if (r?.error) toast(`AI relevance check skipped: ${r.error}`, 'error')
   }
 
   const jobs = useMemo(() => {
     const needle = q.toLowerCase()
     return state.jobs
-      .filter((j) => (company === 'all' || j.companyId === company) && (!needle || `${j.title} ${j.company} ${j.location}`.toLowerCase().includes(needle)))
+      .filter((j) => !j.goneAt && (company === 'all' || j.companyId === company) && (!needle || `${j.title} ${j.company} ${j.location}`.toLowerCase().includes(needle)))
       .sort((a, b) => b.firstSeen.localeCompare(a.firstSeen))
   }, [state.jobs, q, company])
-  const trackedIds = new Set(state.applications.map((a) => a.jobId).filter(Boolean))
+  const trackedIds = new Set(state.applications.map((a) => a.jobId).filter(Boolean) as string[])
+  const missed = useMemo(() => missedSummary(state.jobs, state.applications), [state.jobs, state.applications])
+  const ageing = new Map(missed.atRisk.map((r) => [r.job.id, r.openDays]))
+  const live = state.jobs.filter((j) => !j.goneAt).length
 
   const track = async (id: string): Promise<void> => {
     const app = await run(() => call<Application>('jobs:track', id), 'Tracked — the job description is being pulled into the application.')
@@ -118,7 +125,8 @@ export default function Jobs() {
         </div>
         <div className="row">
           <div className="tabs">
-            <button className={`tab ${tab === 'openings' ? 'on' : ''}`} onClick={() => setTab('openings')}>Openings ({state.jobs.length})</button>
+            <button className={`tab ${tab === 'openings' ? 'on' : ''}`} onClick={() => setTab('openings')}>Openings ({live})</button>
+            <button className={`tab ${tab === 'missed' ? 'on' : ''}`} onClick={() => setTab('missed')}>Missed ({missed.missed.length})</button>
             <button className={`tab ${tab === 'companies' ? 'on' : ''}`} onClick={() => setTab('companies')}>Companies ({state.companies.length})</button>
           </div>
           <button className="btn primary" onClick={sweep} disabled={running}>{running ? <Spinner /> : <Radar size={16} />} {running ? 'Sweeping…' : 'Sweep now'}</button>
@@ -144,6 +152,15 @@ export default function Jobs() {
               {state.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+          {(missed.last30 > 0 || missed.atRisk.length > 0) && (
+            <div className="card tight clickable row" style={{ marginBottom: 14, gap: 10 }} onClick={() => setTab('missed')}>
+              <span className="small grow">
+                {missed.last30 > 0 && <><b>{missed.last30} matching role{missed.last30 === 1 ? '' : 's'}</b> closed before you applied in the last 30 days. </>}
+                {missed.atRisk.length > 0 && <>{missed.atRisk.length} open match{missed.atRisk.length === 1 ? ' is' : 'es are'} ageing with no action yet.</>}
+              </span>
+              <span className="small" style={{ color: 'var(--blue-2)', fontWeight: 600 }}>See what it’s costing <ArrowRight size={13} style={{ verticalAlign: -2 }} /></span>
+            </div>
+          )}
           {jobs.length ? (
             <div className="list">
               {jobs.map((j) => (
@@ -153,6 +170,7 @@ export default function Jobs() {
                     <div className="row" style={{ gap: 8 }}>
                       <span style={{ fontWeight: 650 }} className="ellipsis">{j.title}</span>
                       {daysAgo(j.firstSeen) < 3 && <span className="pill gold">New</span>}
+                      {ageing.has(j.id) && <span className="pill bad" title="Matching roles like this tend to close — apply soon">On radar {Math.round(ageing.get(j.id)!)} days, no action</span>}
                     </div>
                     <div className="small muted ellipsis">{j.company}{j.location ? ` · ${j.location}` : ''} · seen {fmtDate(j.firstSeen)}</div>
                     {j.relevanceReason && <div className="tiny" style={{ color: 'var(--blue-2)', marginTop: 3 }}>{j.relevanceReason}</div>}
@@ -173,6 +191,8 @@ export default function Jobs() {
           )}
         </>
       )}
+
+      {tab === 'missed' && <MissedRoles trackedIds={trackedIds} onTrack={track} onDismiss={dismiss} />}
 
       {tab === 'companies' && (
         <>
