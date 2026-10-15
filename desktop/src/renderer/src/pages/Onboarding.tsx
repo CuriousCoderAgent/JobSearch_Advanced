@@ -4,6 +4,7 @@ import { call, useDesk } from '../lib/desk'
 import { Spinner } from '../components/ui'
 import { ROLE_FOCUS, type CvVersion, type Profile, type RoleFocus } from '../../../shared/types'
 import { STARTER_GROUPS } from '../../../shared/starters'
+import logo from '../assets/logo.png'
 
 export default function Onboarding() {
   const { state, refresh, run, toast } = useDesk()
@@ -50,7 +51,7 @@ export default function Onboarding() {
     <div style={{ height: '100%', overflow: 'auto', display: 'grid', placeItems: 'center', padding: 30 }}>
       <div style={{ width: 'min(760px, 100%)' }}>
         <div className="row" style={{ marginBottom: 22 }}>
-          <div className="logo-mark" />
+          <img className="logo-mark" src={logo} alt="" />
           <div>
             <div className="eyebrow" style={{ margin: 0 }}>JobRadar Desk</div>
             <h1 style={{ fontSize: 28 }}>Let’s set up your job-switch war room</h1>

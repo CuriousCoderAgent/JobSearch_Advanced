@@ -56,12 +56,7 @@ h1, h2, h3, h4 { font-family: var(--display); letter-spacing: -0.02em; margin: 0
   display: flex; flex-direction: column; padding: 20px 14px 16px; gap: 4px;
 }
 .logo { display: flex; align-items: center; gap: 10px; padding: 4px 8px 20px; }
-.logo-mark {
-  width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
-  background: conic-gradient(from 210deg, var(--gold), #ff8f5a, var(--blue), var(--gold));
-  box-shadow: 0 6px 20px rgba(245, 181, 68, 0.25);
-}
-.logo-mark::after { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 3px rgba(10, 14, 25, 0.35); }
+.logo-mark { width: 36px; height: 36px; display: block; flex: 0 0 auto; filter: drop-shadow(0 6px 16px rgba(124, 156, 255, 0.3)); }
 .logo-name { font-family: var(--display); font-weight: 800; font-size: 17px; }
 .logo-sub { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .nav-item {

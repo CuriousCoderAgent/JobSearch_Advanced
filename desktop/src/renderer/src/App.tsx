@@ -13,6 +13,7 @@ import Practice from './pages/Practice'
 import Coach from './pages/Coach'
 import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
+import logo from './assets/logo.png'
 
 const NAV: { id: Page; label: string; icon: typeof Sun }[] = [
   { id: 'today', label: 'Today', icon: Sun },
@@ -34,7 +35,7 @@ function Shell() {
     <div className="shell">
       <nav className="sidebar">
         <div className="logo">
-          <div className="logo-mark" />
+          <img className="logo-mark" src={logo} alt="" />
           <div>
             <div className="logo-name">JobRadar Desk</div>
             <div className="logo-sub">{state.profile.name ? `${state.profile.name.split(' ')[0]}'s war room` : 'Your war room'}</div>
