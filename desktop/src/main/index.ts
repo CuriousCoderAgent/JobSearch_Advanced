@@ -72,7 +72,10 @@ app.on('second-instance', () => {
 })
 
 if (primary) app.whenReady().then(() => {
-  app.setAppUserModelId('com.eshangupta.jobradardesk')
+  // Windows matches the taskbar button to a shortcut by this id. Dev and test
+  // runs get their own, or their first notification creates an "Electron"
+  // shortcut with this id and the installed app shows Electron's icon.
+  app.setAppUserModelId(app.isPackaged && !process.env['JOBRADAR_TEST_DIR'] ? 'com.eshangupta.jobradardesk' : 'com.eshangupta.jobradardesk.dev')
 
   // Camera and microphone are needed for interview practice; nothing else.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
