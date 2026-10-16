@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Camera, CircleStop, Mic, Play, SkipForward, Sparkles, Trash2, Users, Volume2, X } from 'lucide-react'
 import { call, onEvent, useDesk } from '../lib/desk'
 import { analyze, decodeTo16k, transcribe } from '../lib/voice'
+import { openMedia } from '../lib/media'
 import { Empty, Markdown, Ring, Sparkline, Spinner, fixDuration, fmtDate, scoreTone } from '../components/ui'
 import type { Application, MockDecision, MockSession, MockTurn, Question } from '../../../shared/types'
 
@@ -90,31 +91,36 @@ export default function MockInterview({ tabs, initialAppId, onPractise }: { tabs
 
   const begin = async (): Promise<void> => {
     endRef.current = false
-    const s = await run(() => call<MockSession>('mock:start', appId || null, count, mode, followUps))
-    if (!s) return
+    let opened: Awaited<ReturnType<typeof openMedia>>
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-        video: mode === 'video' ? { width: 1280, height: 720 } : false
-      })
-      streamRef.current = stream
-      const ctx = new AudioContext()
-      audioCtxRef.current = ctx
-      const an = ctx.createAnalyser(); an.fftSize = 512
-      ctx.createMediaStreamSource(stream).connect(an)
-      const data = new Uint8Array(an.frequencyBinCount)
-      meterTimer.current = window.setInterval(() => {
-        an.getByteTimeDomainData(data)
-        let peak = 0
-        for (const v of data) peak = Math.max(peak, Math.abs(v - 128))
-        setLevels((l) => [...l.slice(1), Math.max(2, Math.min(34, peak / 2.2))])
-      }, 80)
+      opened = await openMedia(mode === 'video')
     } catch (e) {
-      toast(`Couldn’t start the ${mode === 'video' ? 'camera/microphone' : 'microphone'}: ${(e as Error).message}. Check Windows privacy settings.`, 'error')
-      await call('mock:remove', s.id).catch(() => undefined)
-      stopEverything()
+      toast((e as Error).message, 'error')
       return
     }
+    if (opened.cameraIssue) {
+      // Everything after this point reads the chosen mode, so switch it and
+      // let him start again rather than change it mid-interview.
+      opened.stream.getTracks().forEach((t) => t.stop())
+      setMode('audio')
+      toast(`${opened.cameraIssue} Switched to a phone screen (sound only) — press Start again to go ahead.`, 'error')
+      return
+    }
+    const s = await run(() => call<MockSession>('mock:start', appId || null, count, mode, followUps))
+    if (!s) { opened.stream.getTracks().forEach((t) => t.stop()); return }
+    const stream = opened.stream
+    streamRef.current = stream
+    const ctx = new AudioContext()
+    audioCtxRef.current = ctx
+    const an = ctx.createAnalyser(); an.fftSize = 512
+    ctx.createMediaStreamSource(stream).connect(an)
+    const data = new Uint8Array(an.frequencyBinCount)
+    meterTimer.current = window.setInterval(() => {
+      an.getByteTimeDomainData(data)
+      let peak = 0
+      for (const v of data) peak = Math.max(peak, Math.abs(v - 128))
+      setLevels((l) => [...l.slice(1), Math.max(2, Math.min(34, peak / 2.2))])
+    }, 80)
     saveSession(s)
     setViewId(null)
     ask({ kind: 'main', questionId: s.planned[0].questionId, text: s.planned[0].text, index: 0 })
