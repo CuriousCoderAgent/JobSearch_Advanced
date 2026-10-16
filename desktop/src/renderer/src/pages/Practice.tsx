@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, CircleStop, Eye, EyeOff, ChartLine, HeartPulse, Mic, RotateCcw, Shuffle, Sparkles, Trash2, Users } from 'lucide-react'
 import { call, onEvent, useDesk } from '../lib/desk'
 import { analyze, decodeTo16k, transcribe } from '../lib/voice'
+import { openMedia } from '../lib/media'
 import { Bar, Empty, Markdown, Ring, Sparkline, Spinner, fixDuration, fmtDate, scoreTone } from '../components/ui'
 import MockInterview from './MockInterview'
 import type { PracticeAttempt, Question } from '../../../shared/types'
@@ -52,11 +53,17 @@ export default function Practice() {
   const start = async (): Promise<void> => {
     if (!q) return
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: mode === 'video' ? { width: 1280, height: 720 } : false })
+      const { stream, cameraIssue } = await openMedia(mode === 'video')
+      // The camera wouldn't start but the microphone did: record this one with sound only.
+      const m = cameraIssue ? 'audio' : mode
+      if (cameraIssue) {
+        setMode('audio')
+        toast(`${cameraIssue} Recording with sound only for now — your words, pace and tone are still reviewed.`, 'error')
+      }
       streamRef.current = stream
-      if (videoRef.current && mode === 'video') { videoRef.current.srcObject = stream; await videoRef.current.play() }
+      if (videoRef.current && m === 'video') { videoRef.current.srcObject = stream; await videoRef.current.play() }
       chunksRef.current = []; framesRef.current = []
-      const mime = mode === 'video'
+      const mime = m === 'video'
         ? (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm')
         : 'audio/webm;codecs=opus'
       const rec = new MediaRecorder(stream, { mimeType: mime })
@@ -77,7 +84,7 @@ export default function Practice() {
         setLevels((l) => [...l.slice(1), Math.max(2, Math.min(34, peak / 2.2))])
       }, 80))
       // Snapshot a frame every 8 seconds for body-language feedback.
-      if (mode === 'video') {
+      if (m === 'video') {
         const grab = (): void => {
           const v = videoRef.current
           if (!v || !v.videoWidth) return
@@ -95,7 +102,7 @@ export default function Practice() {
       setViewId(null)
       setPhase('recording')
     } catch (e) {
-      toast(`Couldn’t start the ${mode === 'video' ? 'camera/microphone' : 'microphone'}: ${(e as Error).message}. Check Windows privacy settings for camera and microphone.`, 'error')
+      toast((e as Error).message, 'error')
       stopStream()
     }
   }
