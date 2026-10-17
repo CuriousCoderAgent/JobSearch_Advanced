@@ -8,7 +8,7 @@ export async function call<T = unknown>(channel: string, ...args: unknown[]): Pr
 }
 export const onEvent = (channel: string, cb: (payload: unknown) => void): (() => void) => window.desk.on(channel, cb)
 
-export type Page = 'today' | 'jobs' | 'people' | 'applications' | 'cvs' | 'prep' | 'practice' | 'coach' | 'settings'
+export type Page = 'today' | 'jobs' | 'people' | 'applications' | 'cvs' | 'prep' | 'practice' | 'dojo' | 'coach' | 'settings'
 type ToastKind = 'info' | 'good' | 'error'
 
 interface DeskCtx {

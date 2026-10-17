@@ -11,18 +11,19 @@ import { importCvFile, markdownToDocx, markdownToPdf } from './documents'
 import * as coach from './coach'
 import { applyEmailPattern, researchCompany } from './people'
 import { importContacts } from './contactImport'
-import { AI_GTM_QUESTIONS, SEED_QUESTIONS } from './seeds'
+import { AI_GTM_QUESTIONS, SEED_OBJECTIONS, SEED_QUESTIONS } from './seeds'
 import {
   APP_STATUSES, CONNECTION_STATUSES, CONTACT_STATUSES, localDay,
   type Contact, type OrgPeopleMeta, type PeopleProgress,
   type Application, type AppStatus, type ChatMessage, type CoachMemory, type Company, type CvVersion, type DailyBrief,
   type Job, type MockDecision, type MockSession, type MockTurn, type MoodEntry, type PracticeAttempt, type Profile,
   type JobCacheEntry, type Question, type Settings, type SweepProgress,
-  type UsageEntry, type BootstrapState, type UsageSummary, type Win
+  type UsageEntry, type BootstrapState, type UsageSummary, type Win,
+  type BridgeStory, type DojoRound, type DojoSession, type Objection
 } from '../shared/types'
 import { fmtDays, missedSummary } from '../shared/missed'
 
-const DATA_VERSION = 2
+const DATA_VERSION = 3
 const DEFAULT_SETTINGS: Settings = {
   onboarded: false,
   weeklyApplications: 5,
@@ -51,14 +52,39 @@ function ensureQuestions(): Question[] {
   return write('questions', SEED_QUESTIONS.map(seedToQuestion))
 }
 
+const seedToObjection = (s: (typeof SEED_OBJECTIONS)[number]): Objection => ({ ...s, id: newId(), builtIn: true, createdAt: nowIso() })
+
+// The objection list starts from the built-in set; anything the seeds gain
+// later is merged in by migrate() without touching his own additions.
+function ensureObjections(): Objection[] {
+  const existing = read<Objection[] | null>('objections', null)
+  if (existing) return existing
+  return write('objections', SEED_OBJECTIONS.map(seedToObjection))
+}
+
 // One-time upgrades of an existing install's data when defaults change. Only
 // ever adds; nothing you customised is removed.
 function migrate(): void {
   const s = read<Partial<Settings>>('settings', {})
-  if ((s.dataVersion ?? 1) >= DATA_VERSION) return
+  const from = s.dataVersion ?? 1
+  if (from >= DATA_VERSION) return
+  write('settings', { ...s, dataVersion: DATA_VERSION })
+
+  // v3: Objection Dojo. Existing installs get the built-in objections merged
+  // into whatever list they have (none, on a 1.4 install — ensureObjections
+  // seeds it fully), and a fresh empty bank of bridge stories.
+  if (from < 3) {
+    const have = read<Objection[] | null>('objections', null)
+    if (have) {
+      const texts = new Set(have.map((o) => o.text))
+      const add = SEED_OBJECTIONS.filter((o) => !texts.has(o.text)).map(seedToObjection)
+      if (add.length) write('objections', [...have, ...add])
+    }
+  }
+  if (from >= 2) return
 
   // v2: AI-company job titles and interview questions.
-  const next: Partial<Settings> = { ...s, dataVersion: DATA_VERSION }
+  const next: Partial<Settings> = { ...read<Partial<Settings>>('settings', {}) }
   if (s.includeKeywords?.length) next.includeKeywords = [...new Set([...s.includeKeywords, ...INCLUDE_ADDED_V2])]
   if (s.excludeKeywords?.length) next.excludeKeywords = [...new Set([...s.excludeKeywords, ...EXCLUDE_ADDED_V2])]
   write('settings', next)
@@ -217,6 +243,16 @@ function networkLine(): string {
 }
 
 // Plain-text picture of the search, handed to the coach for briefs and chat.
+const OUTCOME_WORDS = { held: 'held their ground', wobbled: 'wobbled', folded: 'folded' } as const
+function dojoLine(): string {
+  const sessions = read<DojoSession[]>('dojo', []).filter((d) => d.debrief).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-4)
+  if (!sessions.length) return ''
+  return `Objection Dojo (sparring on one objection at a time):\n${sessions.map((d) => {
+    const b = d.debrief!
+    return `- ${d.createdAt.slice(0, 10)} "${d.objectionText.slice(0, 70)}…" (${d.label}): ${b.overall}/100, ${OUTCOME_WORDS[b.outcome]}; translation ${b.scores.translation}/10, numbers ${b.scores.quantification}/10, stance ${b.scores.stance}/10`
+  }).join('\n')}`
+}
+
 function snapshot(): string {
   const apps = read<Application[]>('applications', [])
   const qs = ensureQuestions()
@@ -252,6 +288,8 @@ function snapshot(): string {
     mocks.length
       ? `Mock interviews:\n${mocks.map((m) => `- ${m.createdAt.slice(0, 10)} ${m.label}: ${m.debrief!.overall}/100, panel says ${DECISION_WORDS[m.debrief!.decision]}; patterns: ${m.debrief!.themes.slice(0, 2).join('; ')}`).join('\n')}`
       : '',
+    dojoLine(),
+    coach.bridgeStoriesContext(),
     networkLine(),
     missedLine(apps),
     recentWins.length ? `Wins logged in the last three weeks:\n${recentWins.map((w) => `- ${w.at.slice(0, 10)}: ${w.text}`).join('\n')}` : 'No wins logged yet.',
@@ -271,6 +309,9 @@ function bootstrap(): BootstrapState {
     questions: ensureQuestions(),
     practice: read<PracticeAttempt[]>('practice', []).map(({ words: _w, ...p }) => ({ ...p, words: [] })),
     mocks: read<MockSession[]>('mocks', []),
+    objections: ensureObjections(),
+    dojo: read<DojoSession[]>('dojo', []),
+    bridges: read<BridgeStory[]>('bridges', []),
     contacts: read<Contact[]>('contacts', []),
     orgPeople: read<Record<string, OrgPeopleMeta>>('orgpeople', {}),
     peopleProgress,
@@ -795,6 +836,117 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const t = byId<MockSession>('mocks', sessionId).turns.find((x) => x.id === turnId)
     return t?.mediaFile && existsSync(t.mediaFile) ? `media://${encodeURIComponent(t.mediaFile)}` : null
   })
+
+  // Objection Dojo
+  const dojoApp = (s: DojoSession): Application | undefined =>
+    s.applicationId ? read<Application[]>('applications', []).find((a) => a.id === s.applicationId) : undefined
+  const dojoObjection = (s: DojoSession): Objection =>
+    ensureObjections().find((o) => o.id === s.objectionId) ?? { id: s.objectionId, text: s.objectionText, why: '', createdAt: s.createdAt }
+
+  handle('objections:add', (text: string, why: string) => {
+    const o: Objection = { id: newId(), text: text.trim(), why: why.trim(), createdAt: nowIso() }
+    if (o.text.length < 10) throw new Error('Write the objection the way they would say it.')
+    update<Objection[]>('objections', [], (list) => [o, ...list])
+    return o
+  })
+  handle('objections:remove', (id: string) => remove('objections', id))
+
+  handle('dojo:start', (objectionId: string, appId: string | null, mode: 'audio' | 'video', pushbacks: number) => {
+    const objection = ensureObjections().find((o) => o.id === objectionId)
+    if (!objection) throw new Error('That objection no longer exists.')
+    const app = appId ? byId<Application>('applications', appId) : undefined
+    return upsert<DojoSession>('dojo', {
+      id: newId(), createdAt: nowIso(), objectionId, objectionText: objection.text, applicationId: app?.id,
+      label: app ? `${app.company} — ${app.role}` : 'AI-first platform company',
+      mode, maxPushbacks: Math.min(5, Math.max(1, Math.round(pushbacks))), rounds: []
+    })
+  })
+  handle('dojo:round', (sessionId: string, p: {
+    kind: DojoRound['kind']; prompt: string; media: ArrayBuffer; ext: string
+    transcript: string; metrics: DojoRound['metrics']; frame?: string
+  }) => {
+    const s = byId<DojoSession>('dojo', sessionId)
+    const dir = ensure(join(practiceDir(), 'Objection Dojo', safeName(`${s.createdAt.slice(0, 10)} - ${s.objectionText.slice(0, 50)} - ${s.id.slice(0, 6)}`, 110)))
+    const stem = `${String(s.rounds.length + 1).padStart(2, '0')} - ${safeName(p.prompt, 50)}`
+    const mediaFile = join(dir, `${stem}.${p.ext}`)
+    writeFileSync(mediaFile, Buffer.from(p.media))
+    let frameFile: string | undefined
+    if (p.frame) { frameFile = join(dir, `${stem}.jpg`); writeFileSync(frameFile, Buffer.from(p.frame, 'base64')) }
+    const round: DojoRound = {
+      id: newId(), kind: p.kind, prompt: p.prompt, at: nowIso(), mediaFile, frameFile, transcript: p.transcript, metrics: p.metrics
+    }
+    const fresh = byId<DojoSession>('dojo', sessionId)
+    upsert('dojo', { ...fresh, rounds: [...fresh.rounds, round] })
+    logActivity('practice')
+    return round
+  })
+  // What the sceptic says after an answer: another pushback on the same theme, or a concession.
+  handle('dojo:pushback', async (sessionId: string) => {
+    const s = byId<DojoSession>('dojo', sessionId)
+    if (!hasApiKey()) return null
+    if (s.rounds.filter((r) => r.kind === 'pushback').length >= s.maxPushbacks) return null
+    const last = s.rounds[s.rounds.length - 1]
+    if (!last) return null
+    if (last.transcript.trim().split(/\s+/).length < 8) {
+      // A skip or near-silence: the sceptic takes that as its own answer.
+      return { pushback: 'That silence is an answer. Let me put it more plainly: ' + s.objectionText, conceded: false, angle: 'no answer given' }
+    }
+    const out = await coach.dojoPushback(s, dojoObjection(s), dojoApp(s))
+    if (out.conceded) upsert('dojo', { ...byId<DojoSession>('dojo', sessionId), concededAt: nowIso() })
+    return out
+  })
+  handle('dojo:debrief', async (sessionId: string) => {
+    const s = byId<DojoSession>('dojo', sessionId)
+    if (!s.rounds.length) throw new Error('Answer the objection at least once first.')
+    const frames = s.mode === 'video'
+      ? s.rounds.map((r) => (r.frameFile && existsSync(r.frameFile) ? readFileSync(r.frameFile).toString('base64') : null))
+      : []
+    const previous = read<DojoSession[]>('dojo', [])
+      .filter((d) => d.id !== s.id && d.debrief && d.createdAt < s.createdAt)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(-4)
+    const bridges = read<BridgeStory[]>('bridges', [])
+    const debrief = await coach.dojoDebrief(s, dojoObjection(s), dojoApp(s), frames, previous, bridges)
+    // The distilled bridge story goes straight into the bank; he can edit or
+    // delete it there. A re-run of the debrief updates the same story.
+    const existing = s.bridgeStoryId ? bridges.find((b) => b.id === s.bridgeStoryId) : undefined
+    const story: BridgeStory = existing
+      ? { ...existing, ...debrief.bridge, updatedAt: nowIso() }
+      : { id: newId(), objectionId: s.objectionId, objectionText: s.objectionText, ...debrief.bridge, sessionId: s.id, createdAt: nowIso(), updatedAt: nowIso() }
+    upsert('bridges', story)
+    if (!s.debrief) {
+      addWin(`Sparred ${s.rounds.length} round${s.rounds.length === 1 ? '' : 's'} on "${s.objectionText.slice(0, 60)}…"${debrief.outcome === 'held' ? ` — and held (${debrief.overall})` : ''}`)
+      const prior = previous.filter((p) => p.objectionId === s.objectionId).pop()?.debrief
+      if (prior && debrief.overall >= prior.overall + 5) addWin(`Dojo score on that objection up from ${prior.overall} to ${debrief.overall}`)
+    }
+    return upsert('dojo', { ...byId<DojoSession>('dojo', sessionId), debrief, bridgeStoryId: story.id })
+  })
+  handle('dojo:remove', (sessionId: string) => {
+    const s = read<DojoSession[]>('dojo', []).find((d) => d.id === sessionId)
+    for (const r of s?.rounds ?? []) {
+      for (const f of [r.mediaFile, r.frameFile]) if (f && existsSync(f)) unlinkSync(f)
+    }
+    const dir = s?.rounds[0]?.mediaFile ? dirname(s.rounds[0].mediaFile) : null
+    if (dir && existsSync(dir) && !readdirSync(dir).length) rmdirSync(dir)
+    remove('dojo', sessionId)
+  })
+  handle('dojo:mediaUrl', (sessionId: string, roundId: string) => {
+    const r = byId<DojoSession>('dojo', sessionId).rounds.find((x) => x.id === roundId)
+    return r?.mediaFile && existsSync(r.mediaFile) ? `media://${encodeURIComponent(r.mediaFile)}` : null
+  })
+
+  handle('bridges:save', (story: BridgeStory) => {
+    const prev = read<BridgeStory[]>('bridges', []).find((b) => b.id === story.id)
+    return upsert<BridgeStory>('bridges', { ...story, createdAt: prev?.createdAt ?? story.createdAt ?? nowIso(), updatedAt: nowIso() })
+  })
+  handle('bridges:add', (objectionId: string | null) => {
+    const objection = objectionId ? ensureObjections().find((o) => o.id === objectionId) : undefined
+    return upsert<BridgeStory>('bridges', {
+      id: newId(), objectionId: objection?.id, objectionText: objection?.text ?? 'Any objection', title: 'New bridge story',
+      proof: '', translation: '', landing: '', createdAt: nowIso(), updatedAt: nowIso()
+    })
+  })
+  handle('bridges:remove', (id: string) => remove('bridges', id))
 
   // People to reach
   handle('people:research', async (companyId: string) => {

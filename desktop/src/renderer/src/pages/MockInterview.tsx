@@ -3,6 +3,7 @@ import { Camera, CircleStop, Mic, Play, SkipForward, Sparkles, Trash2, Users, Vo
 import { call, onEvent, useDesk } from '../lib/desk'
 import { analyze, decodeTo16k, transcribe } from '../lib/voice'
 import { openMedia } from '../lib/media'
+import { speak } from '../lib/speak'
 import { Empty, Markdown, Ring, Sparkline, Spinner, fixDuration, fmtDate, scoreTone } from '../components/ui'
 import type { Application, MockDecision, MockSession, MockTurn, Question } from '../../../shared/types'
 
@@ -16,27 +17,6 @@ const DECISION: Record<MockDecision, [string, string]> = {
   no: ['No — not on this showing', 'bad']
 }
 const LENGTHS = [[3, '~10 min'], [5, '~15 min'], [7, '~25 min']] as const
-
-// Reads the question aloud with the PC's own voices (offline), preferring an
-// Indian English voice. Resolves when finished, or at once if speech is off.
-async function speak(text: string): Promise<void> {
-  const synth = window.speechSynthesis
-  if (!synth) return
-  if (!synth.getVoices().length) {
-    await new Promise<void>((r) => { synth.addEventListener('voiceschanged', () => r(), { once: true }); setTimeout(r, 1200) })
-  }
-  const voices = synth.getVoices()
-  const u = new SpeechSynthesisUtterance(text)
-  u.voice = voices.find((v) => v.lang === 'en-IN') ?? voices.find((v) => v.lang === 'en-GB') ?? voices.find((v) => v.lang.startsWith('en')) ?? null
-  u.rate = 0.98
-  synth.cancel()
-  await new Promise<void>((resolve) => {
-    u.onend = () => resolve()
-    u.onerror = () => resolve()
-    setTimeout(resolve, 2000 + text.length * 110) // never hang the interview on a silent voice
-    synth.speak(u)
-  })
-}
 
 export default function MockInterview({ tabs, initialAppId, onPractise }: { tabs: ReactNode; initialAppId?: string; onPractise: (questionId: string) => void }) {
   const { state, patch, run, toast } = useDesk()

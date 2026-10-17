@@ -3,8 +3,8 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { coachParse, coachStream, type CoachTool } from './ai'
 import { newId, nowIso, read, update } from './store'
 import type {
-  Application, CoachMemory, CvVersion, DeliveryMetrics, MockDebrief, MockSession, PracticeAttempt, PracticeFeedback,
-  Profile, Question, Track
+  Application, BridgeStory, CoachMemory, CvVersion, DeliveryMetrics, DojoDebrief, DojoSession, MockDebrief, MockSession,
+  Objection, PracticeAttempt, PracticeFeedback, Profile, Question, Track
 } from '../shared/types'
 
 // The coach's voice. Kept stable (and cached) across every coaching call; it
@@ -45,8 +45,24 @@ function persona(): string {
     profileContext(p),
     memory.length
       ? `\n## What you remember about ${name} (your own notes from earlier conversations)\n${memory.map((m) => `- [${m.id.slice(0, 8)}] ${m.text}`).join('\n')}`
-      : ''
+      : '',
+    bridgeStoriesContext(true)
   ].join('\n')
+}
+
+// The bridge stories he has built in the Objection Dojo: his own proof,
+// translated into platform-sales language. The coach reuses them everywhere
+// (critiques, model answers, the chat); the snapshot gets the short form.
+export function bridgeStoriesContext(full = false): string {
+  const stories = read<BridgeStory[]>('bridges', [])
+  if (!stories.length) return ''
+  const ordered = [...stories].sort((a, b) => Number(!!b.starred) - Number(!!a.starred) || b.updatedAt.localeCompare(a.updatedAt))
+  const lines = ordered.slice(0, full ? 20 : 8).map((s) => full
+    ? `- ${s.title}${s.starred ? ' ★' : ''} (answers: "${s.objectionText.slice(0, 80)}")\n  Proof: ${s.proof}\n  As a platform seller would say it: ${s.translation}\n  Landing line: "${s.landing}"`
+    : `- ${s.title}${s.starred ? ' ★' : ''}: ${s.landing}`)
+  return full
+    ? `\n## Bridge stories (their prepared translations of SHL proof into platform-sales language — reuse and sharpen these rather than inventing new ones)\n${lines.join('\n')}`
+    : `Bridge stories in the bank (${stories.length}):\n${lines.join('\n')}`
 }
 
 function profileContext(p: Profile): string {
@@ -444,6 +460,173 @@ export async function mockDebrief(
       nerves: n.startsWith('h') ? 'high' : n.startsWith('c') ? 'calm' : 'some',
       energy: e.startsWith('f') ? 'flat' : e.startsWith('a') ? 'animated' : 'steady'
     },
+    progress: out.progress.trim() || undefined,
+    at: nowIso()
+  }
+}
+
+// ---------- Objection Dojo ----------
+
+// The sceptic is not the panel and not the coach: a hiring manager who has
+// already half-decided against the candidate and is looking for a reason to
+// be right. They stay on one theme and only yield to specifics.
+function scepticSystem(objection: Objection, app?: Application): string {
+  const p = read<Profile>('profile', {} as Profile)
+  const cvs = read<CvVersion[]>('cvs', [])
+  const master = cvs.find((c) => c.id === p.masterCvId) ?? cvs.find((c) => c.kind === 'master') ?? cvs[0]
+  return [
+    app
+      ? `You are the hiring manager for ${app.role} at ${app.company}, interviewing a senior enterprise-sales candidate from India.`
+      : 'You are the hiring manager at an AI-first platform company, interviewing a senior enterprise-sales candidate from India for a role on your team.',
+    'You have one specific doubt about this candidate and you have raised it to their face. You are not hostile, but you',
+    'are sceptical and short on time: you have been burned before, you have other candidates, and you will only move on',
+    'when you hear specifics that actually answer the doubt — their own actions (not the team’s), numbers, named buyers',
+    'and situations that look like the job you are hiring for. Generalities, enthusiasm, reframing without evidence,',
+    'and "I’m a fast learner" make you push harder, not softer. You never coach, reassure or explain what you want to',
+    'hear; you push back in natural spoken English, the way you would across a table, in under 40 words.',
+    '',
+    `The doubt: "${objection.text}"`,
+    `What you are really worried about: ${objection.why}`,
+    app?.jd ? `\nThe job description:\n${app.jd.slice(0, 8000)}` : '',
+    master ? `\nThe candidate’s CV (use it to challenge claims that don’t match it, never to help them):\n${master.text.slice(0, 16000)}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+const roundsSoFar = (s: DojoSession): string => s.rounds.map((r, i) => [
+  `${i === 0 ? 'You opened with' : `Your pushback ${i}`}: "${r.prompt}"`,
+  `Candidate (live speech-to-text, ignore small slips): ${r.transcript.trim() || '(nothing recognised — silence or a skip)'}`
+].join('\n')).join('\n\n')
+
+export async function dojoPushback(s: DojoSession, objection: Objection, app?: Application): Promise<{ pushback: string; conceded: boolean; angle: string }> {
+  const pushbacksSoFar = s.rounds.filter((r) => r.kind === 'pushback').length
+  const last = pushbacksSoFar + 1 >= s.maxPushbacks
+  const out = await coachParse('dojo: pushback', {
+    system: scepticSystem(objection, app),
+    effort: 'low',
+    maxTokens: 2000,
+    schema: z.object({
+      conceded: z.boolean().describe('True only if the doubt has genuinely been answered with specifics and you would now move on'),
+      angle: z.string().describe('In under 12 words, which part of the doubt is still unanswered — or "answered" if conceded'),
+      pushback: z.string().describe('What you say next, under 40 words, spoken English. If conceding: one dry line accepting the answer and moving on.')
+    }),
+    content: [
+      'The exchange so far:',
+      roundsSoFar(s),
+      '',
+      `This is pushback ${pushbacksSoFar + 1} of at most ${s.maxPushbacks}.${last ? ' It is your last one, so make it the hardest, most specific version of the doubt.' : ''}`,
+      'Decide honestly whether the doubt has been answered. If not, push back on the SAME theme — do not change subject,',
+      'do not ask a new question from a different area — by naming exactly what is still missing: the number they',
+      'skipped, the buyer they didn’t name, the part that was the team’s work not theirs, the way their example is',
+      'still an HR/assessments situation rather than a platform one. Escalate: each pushback should be harder to',
+      'wave away than the last. Quote their own words back where it stings.',
+      'If they really did answer it — specific, quantified, their own contribution, in your world’s terms — concede',
+      'in one short, grudging line and set conceded to true.'
+    ].join('\n')
+  })
+  return { ...out, pushback: out.pushback.trim(), angle: out.angle.trim() }
+}
+
+const OUTCOMES = ['held', 'wobbled', 'folded'] as const
+
+export async function dojoDebrief(
+  s: DojoSession,
+  objection: Objection,
+  app: Application | undefined,
+  frames: (string | null)[],
+  previous: DojoSession[],
+  existing: BridgeStory[]
+): Promise<DojoDebrief> {
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [{
+    type: 'text',
+    text: [
+      app ? `Objection sparring for ${app.role} at ${app.company}.` : 'Objection sparring with the hiring manager of an AI-first platform company.',
+      `The objection: "${objection.text}"`,
+      `The doubt underneath it: ${objection.why}`,
+      '',
+      'The full exchange, in order (answers are local speech-to-text; it can miss "um/uh", so trust the delivery numbers):',
+      ...s.rounds.map((r, i) => [
+        '',
+        `${i === 0 ? 'Opening' : `Pushback ${i}`} — the sceptic said: "${r.prompt}"`,
+        `Round ${i + 1} answer: ${r.transcript.trim() || '(nothing was recognised — silence or a skip)'}`,
+        `Delivery: ${metricLine(r.metrics)}`
+      ].join('\n')),
+      s.concededAt ? '\nThe sceptic conceded before the rounds ran out.' : `\nThe sceptic did not concede within ${s.maxPushbacks} pushbacks.`
+    ].join('\n')
+  }]
+  const shots = frames.map((f, i) => [f, i] as const).filter(([f]) => f)
+  if (shots.length) {
+    content.push({ type: 'text', text: 'One still frame from the middle of each answer, labelled by round:' })
+    for (const [f, i] of shots) {
+      content.push({ type: 'text', text: `Round ${i + 1}:` })
+      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: f! } })
+    }
+  }
+  const sameObjection = previous.filter((p) => p.objectionId === s.objectionId)
+  const related = existing.filter((b) => b.objectionId === s.objectionId)
+  content.push({
+    type: 'text',
+    text: [
+      sameObjection.length
+        ? `Their earlier sessions on this same objection:\n${sameObjection.map((p) => `- ${p.createdAt.slice(0, 10)}: ${p.debrief!.overall}/100, ${p.debrief!.outcome}; translation ${p.debrief!.scores.translation}, numbers ${p.debrief!.scores.quantification}, stance ${p.debrief!.scores.stance}; top fix: ${p.debrief!.rounds[0]?.fix ?? '—'}`).join('\n')}`
+        : 'This is their first session on this objection.',
+      related.length
+        ? `Bridge stories they already have for this objection (improve on these, do not duplicate them):\n${related.map((b) => `- ${b.title}: ${b.landing}`).join('\n')}`
+        : '',
+      '',
+      'Debrief this sparring session. Score three things the mock interview does not, each 0–10 with a one-line note:',
+      '- translation: did they convert SHL / talent-assessment proof into the platform company’s own language — buyer',
+      '  personas (CTO, CFO, developer, product), land-and-expand, usage and consumption, multi-product, integrations,',
+      '  mission-critical stakes — or did their examples stay HR-shaped?',
+      '- quantification: numbers early, scope clear, and their OWN contribution separated from the team’s.',
+      '- stance: a leader framing the gap on their own terms (naming it first, reframing what actually transfers, with',
+      '  evidence) versus a defensive individual contributor (apologising, over-explaining, hedging, agreeing too fast).',
+      'Then an overall 0–100 and the outcome: "held" if the doubt was answered and the sceptic would move on, "wobbled"',
+      'if they recovered after a weak round, "folded" if the objection won. One-line headline, and how the sceptic would',
+      'describe the exchange to a colleague afterwards.',
+      'For every round: a one-line verdict, their single strongest sentence quoted verbatim (empty if none), and one fix.',
+      'List the defensive tells — the exact phrases or moves that showed the objection had landed (hedges, apologies,',
+      '"to be honest", answering a different question, conceding the premise). Quote them.',
+      '',
+      'Then distil ONE bridge story from this session — the best reusable asset in what they said, made sharper:',
+      'a five-word title; the SHL proof with its numbers (their facts only, [placeholders] for anything missing); the same',
+      'fact as a platform seller would say it; and the one spoken line that lands it, under 30 words. Build it from what',
+      'they actually said in this session; if the session was too thin, build the best honest version from their CV and',
+      'say so in the verdict.',
+      'Finish with one drill for the next session, one line on progress against earlier sessions on this objection',
+      '(empty if first), and one line of genuine, evidence-based belief.'
+    ].filter(Boolean).join('\n')
+  })
+  const out = await coachParse('dojo: debrief', {
+    system: persona(),
+    effort: 'high',
+    schema: z.object({
+      overall: z.number().int(),
+      outcome: z.string().describe('Exactly one of: "held", "wobbled", "folded"'),
+      headline: z.string(),
+      summary: z.string(),
+      scores: z.object({ translation: z.number().int(), quantification: z.number().int(), stance: z.number().int() }),
+      scoreNotes: z.object({ translation: z.string(), quantification: z.string(), stance: z.string() }),
+      rounds: z.array(z.object({
+        round: z.number().int().describe('Round number, starting at 1'),
+        verdict: z.string(),
+        bestLine: z.string().describe('Their strongest sentence, quoted verbatim; empty string if none'),
+        fix: z.string()
+      })),
+      tells: z.array(z.string()),
+      bridge: z.object({ title: z.string(), proof: z.string(), translation: z.string(), landing: z.string() }),
+      drill: z.string(),
+      progress: z.string().describe('Empty string if this is the first session on this objection'),
+      belief: z.string()
+    }),
+    content
+  })
+  const o = out.outcome.toLowerCase()
+  const clamp = (n: number): number => Math.max(0, Math.min(10, Math.round(n)))
+  return {
+    ...out,
+    outcome: o.startsWith('h') ? OUTCOMES[0] : o.startsWith('f') ? OUTCOMES[2] : OUTCOMES[1],
+    overall: Math.max(0, Math.min(100, Math.round(out.overall))),
+    scores: { translation: clamp(out.scores.translation), quantification: clamp(out.scores.quantification), stance: clamp(out.scores.stance) },
     progress: out.progress.trim() || undefined,
     at: nowIso()
   }

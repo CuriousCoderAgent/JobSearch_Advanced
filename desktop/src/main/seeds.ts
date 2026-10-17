@@ -104,3 +104,46 @@ export const SEED_QUESTIONS: Seed[] = [
   { category: 'Closing & logistics', tracks: B, text: 'Is there anything we haven’t covered that you want us to know?', why: 'Your last chance to land your single strongest differentiator.' },
   ...AI_GTM_QUESTIONS
 ]
+
+// Objection Dojo: the doubts a hiring manager at a platform or AI-first
+// company holds about a senior seller coming from talent assessment. Each is
+// what they'd actually say across the table; `why` is the doubt underneath.
+// Added in data version 3 — merged into existing installs once.
+export const SEED_OBJECTIONS: { text: string; why: string }[] = [
+  {
+    text: 'You’ve never sold a platform. SHL is assessments — a point solution bought by HR. Our buyers are CTOs, CFOs and product teams, and the product is infrastructure.',
+    why: 'The platform-organisation gap: do they understand multi-product, land-and-expand, usage-driven selling to technical and finance buyers, or only an HR point solution on a seat licence?'
+  },
+  {
+    text: 'Your deals are long HR procurement cycles that close once a year. Here the first contract is small and grows with usage. Have you ever actually run land-and-expand?',
+    why: 'Commercial model fluency: consumption and expansion motions, net revenue retention, and whether their big-ticket enterprise wins translate to growing an account from a small start.'
+  },
+  {
+    text: 'This role needs someone fluent in APIs, developer workflows and integrations. Where is that in your background?',
+    why: 'Technical credibility: can they hold a conversation with a CTO or a developer buyer, and have they done anything hands-on, or will they always need an engineer in the room?'
+  },
+  {
+    text: 'We’ve hired strong sellers from outside our space before and it didn’t work. For a leadership hire we want someone who has done this in our industry. Why are you different?',
+    why: 'The industry-experience bar for a manager-level hire: they are open to cross-industry individual contributors but want same-industry leaders. The candidate must show the leadership motion transfers, not just the selling.'
+  },
+  {
+    text: 'Your logos are PSUs and traditional Indian banks. Our India growth is digital-native companies, fintechs and startups. Is your network even relevant to us?',
+    why: 'Fit of their book and relationships to the company’s India strategy, and whether they can open doors in a different buyer community.'
+  },
+  {
+    text: 'Assessments are a nice-to-have line in an HR budget — the first thing cut in a downturn. We sell something mission-critical. Have you ever sold a product the business cannot run without?',
+    why: 'Stakes and urgency: have they sold with executive-level consequences, compliance or revenue on the line, and created urgency without a compelling event?'
+  },
+  {
+    text: 'You run a national team today. Why step into a role where you carry your own number again — and how do we know you won’t be bored or gone in a year?',
+    why: 'Motivation and retention risk on a step from leader to senior individual contributor: is this a deliberate move with a story, or a fallback?'
+  },
+  {
+    text: 'Why leave SHL now? Is this running towards us, or away from something?',
+    why: 'The honesty and shape of the leaving story: a positive, specific reason to join this company, with no bitterness and no hint that the current role is failing.'
+  },
+  {
+    text: 'You’ve spent a long time inside one kind of company with a big brand behind you. Here there is little process, the product changes monthly and you will build the playbook yourself. How do we know you can move at that speed?',
+    why: 'Startup fit: ownership without support structures, comfort with ambiguity, and real evidence of building something from scratch rather than running an established machine.'
+  }
+]

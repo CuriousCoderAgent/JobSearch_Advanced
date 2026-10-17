@@ -1,5 +1,5 @@
 import {
-  BookOpenCheck, Contact, FileText, Flame, KanbanSquare, MessageCircle, Mic, Radar, Settings as SettingsIcon, Sun
+  BookOpenCheck, Contact, FileText, Flame, KanbanSquare, MessageCircle, Mic, Radar, Settings as SettingsIcon, Sun, Swords
 } from 'lucide-react'
 import { DeskProvider, useDesk, type Page } from './lib/desk'
 import { usd } from './components/ui'
@@ -10,6 +10,7 @@ import Applications from './pages/Applications'
 import CvStudio from './pages/CvStudio'
 import Prep from './pages/Prep'
 import Practice from './pages/Practice'
+import Dojo from './pages/Dojo'
 import Coach from './pages/Coach'
 import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
@@ -23,6 +24,7 @@ const NAV: { id: Page; label: string; icon: typeof Sun }[] = [
   { id: 'cvs', label: 'CV Studio', icon: FileText },
   { id: 'prep', label: 'Interview Prep', icon: BookOpenCheck },
   { id: 'practice', label: 'Practice', icon: Mic },
+  { id: 'dojo', label: 'Objection Dojo', icon: Swords },
   { id: 'coach', label: 'Coach', icon: MessageCircle }
 ]
 
@@ -69,6 +71,7 @@ function Shell() {
         {page === 'cvs' && <CvStudio />}
         {page === 'prep' && <Prep />}
         {page === 'practice' && <Practice />}
+        {page === 'dojo' && <Dojo />}
         {page === 'coach' && <Coach />}
         {page === 'settings' && <Settings />}
       </main>
