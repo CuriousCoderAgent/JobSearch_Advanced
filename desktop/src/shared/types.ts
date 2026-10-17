@@ -318,6 +318,99 @@ export interface PracticeAttempt {
   feedback?: PracticeFeedback
 }
 
+// ---------- Objection Dojo ----------
+// Sparring on one objection at a time. A sceptical hiring manager who has
+// already decided against the candidate raises it, then keeps pushing on the
+// same theme round after round until it is answered or the rounds run out.
+// The debrief scores the thing the mock panel doesn't: how well SHL-style
+// proof was translated into platform-sales language.
+
+export interface Objection {
+  id: string
+  text: string
+  /** What the objection is really about — the doubt underneath the words. */
+  why: string
+  builtIn?: boolean
+  createdAt: string
+}
+
+export interface DojoRound {
+  id: string
+  kind: 'opening' | 'pushback'
+  /** What the sceptic said. */
+  prompt: string
+  at: string
+  mediaFile?: string
+  frameFile?: string
+  transcript: string
+  metrics: DeliveryMetrics
+}
+
+export type DojoOutcome = 'held' | 'wobbled' | 'folded'
+
+export interface DojoScores {
+  /** SHL proof converted into the platform company's language (0–10). */
+  translation: number
+  /** Numbers, scope and personal contribution, not team credit (0–10). */
+  quantification: number
+  /** Leader framing the gap on their own terms vs defensive IC (0–10). */
+  stance: number
+}
+
+export interface BridgeStory {
+  id: string
+  objectionId?: string
+  objectionText: string
+  /** Five-word name, e.g. "HDFC platform rollout". */
+  title: string
+  /** The SHL fact, with numbers, in one or two sentences. */
+  proof: string
+  /** The same fact in platform-sales language. */
+  translation: string
+  /** The one spoken line that lands it. */
+  landing: string
+  starred?: boolean
+  sessionId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DojoDebrief {
+  overall: number
+  outcome: DojoOutcome
+  headline: string
+  /** How the sceptic would describe the exchange afterwards, 2–3 sentences. */
+  summary: string
+  scores: DojoScores
+  scoreNotes: { translation: string; quantification: string; stance: string }
+  rounds: { round: number; verdict: string; bestLine: string; fix: string }[]
+  /** Defensive tells: phrases or moves that signalled the objection had landed. */
+  tells: string[]
+  /** The bridge story distilled from this session, before it is saved to the bank. */
+  bridge: Pick<BridgeStory, 'title' | 'proof' | 'translation' | 'landing'>
+  drill: string
+  progress?: string
+  belief: string
+  at: string
+}
+
+export interface DojoSession {
+  id: string
+  createdAt: string
+  objectionId: string
+  objectionText: string
+  applicationId?: string
+  label: string
+  mode: 'audio' | 'video'
+  /** Pushbacks allowed after the opening answer. */
+  maxPushbacks: number
+  rounds: DojoRound[]
+  /** Set when the sceptic conceded before the rounds ran out. */
+  concededAt?: string
+  debrief?: DojoDebrief
+  bridgeStoryId?: string
+}
+
 export interface UsageEntry {
   at: string
   feature: string
@@ -482,6 +575,9 @@ export interface BootstrapState {
   questions: Question[]
   practice: PracticeAttempt[]
   mocks: MockSession[]
+  objections: Objection[]
+  dojo: DojoSession[]
+  bridges: BridgeStory[]
   contacts: Contact[]
   orgPeople: Record<string, OrgPeopleMeta>
   peopleProgress: PeopleProgress | null
