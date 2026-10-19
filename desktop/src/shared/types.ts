@@ -46,7 +46,7 @@ export interface Settings {
 
 export type SourceType =
   | 'greenhouse' | 'lever' | 'ashby' | 'smartrecruiters'
-  | 'workday' | 'successfactors' | 'oracle' | 'amazon'
+  | 'workday' | 'successfactors' | 'oracle' | 'amazon' | 'rippling' | 'atlassian'
   | 'page' | 'portal' | 'none'
 
 export interface CompanySource {
