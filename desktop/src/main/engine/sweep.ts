@@ -41,8 +41,12 @@ export const DEFAULT_EXCLUDE = [
 const INDIA_RE = /\b(india|bangalore|bengaluru|mumbai|bombay|delhi|ncr|gurgaon|gurugram|hyderabad|pune|chennai|noida|kolkata|ahmedabad|kochi|jaipur|chandigarh)\b/i
 // "Remote" on its own counts; "Remote - California" does not.
 const ANYWHERE = '\\b(remote|anywhere|worldwide|global|work from home|wfh)\\b'
+// SuccessFactors sites (HCLTech, Wipro…) can give only the country code, "IN",
+// optionally with a PIN code after it. It has to come last, so a US state
+// ("Indianapolis, IN, US") doesn't count.
+const COUNTRY_CODE_IN = /(^|,\s*)IN(\s*,\s*\d{6})?\s*$/
 export function isIndiaOrAnywhere(location: string): boolean {
-  if (!location.trim() || INDIA_RE.test(location) || /\bIND\b/.test(location)) return true
+  if (!location.trim() || INDIA_RE.test(location) || /\bIND\b/.test(location) || COUNTRY_CODE_IN.test(location.trim())) return true
   return new RegExp(ANYWHERE, 'i').test(location) && !location.replace(new RegExp(ANYWHERE, 'gi'), '').replace(/[^a-z]/gi, '')
 }
 const REDISCOVER_DAYS: Record<string, number> = { none: 14, portal: 14, page: 30 }

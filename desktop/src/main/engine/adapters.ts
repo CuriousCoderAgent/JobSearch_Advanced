@@ -192,10 +192,32 @@ async function amazon(queries: string[], indiaOnly: boolean): Promise<RawJob[] |
   }
   return anyOk ? [...seen.values()] : null
 }
+
+// Rippling's own ATS: every company on it has a public board list.
+async function rippling(slug: string): Promise<RawJob[] | null> {
+  const j = (await getJson(`https://api.rippling.com/platform/api/ats/v1/board/${slug}/jobs`)) as any
+  if (!Array.isArray(j)) return null
+  return j.map((x: any) => ({
+    externalId: `rp-${slug}-${x.uuid}`, title: String(x.name || '').trim(), url: x.url,
+    location: x.workLocation?.label || ''
+  }))
+}
+
+// Atlassian lists every open role in one feed of its own (the iCIMS boards behind it aren't public).
+const ATLASSIAN_FEED = 'https://www.atlassian.com/endpoint/careers/listings'
+async function atlassian(): Promise<RawJob[] | null> {
+  const j = (await getJson(ATLASSIAN_FEED, {}, 30000)) as any
+  if (!Array.isArray(j)) return null
+  return j.map((x: any) => ({
+    externalId: `atl-${x.id}`, title: String(x.title || '').trim(),
+    url: x.portalJobPost?.portalUrl || x.applyUrl || `https://www.atlassian.com/company/careers/details/${x.id}`,
+    location: (Array.isArray(x.locations) ? x.locations : []).join('; ')
+  }))
+}
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export const SLUG_ADAPTERS: Record<string, (slug: string) => Promise<RawJob[] | null>> = {
-  greenhouse, lever, ashby, smartrecruiters
+  greenhouse, lever, ashby, smartrecruiters, rippling
 }
 
 export async function fetchFromSource(
@@ -208,11 +230,13 @@ export async function fetchFromSource(
     case 'lever':
     case 'ashby':
     case 'smartrecruiters':
+    case 'rippling':
       return src.slug ? SLUG_ADAPTERS[src.type](src.slug) : null
     case 'workday': return workday(src, queries)
     case 'successfactors': return successfactors(src, queries)
     case 'oracle': return oracle(src, queries)
     case 'amazon': return amazon(queries, indiaOnly)
+    case 'atlassian': return atlassian()
     default: return null
   }
 }
@@ -250,6 +274,13 @@ export function htmlToText(html: string): string {
 }
 
 export interface JdHint { source?: CompanySource; externalId?: string }
+
+// An Atlassian role's id, from the sweep's hint or its iCIMS link (/jobs/<id>/...).
+function atlassianId(host: string, parts: string[], hint: JdHint): string | null {
+  if (hint.source?.type === 'atlassian' && hint.externalId?.startsWith('atl-')) return hint.externalId.slice(4)
+  if (/atlassian\.icims\.com$/.test(host) && parts[0] === 'jobs' && /^\d+$/.test(parts[1] || '')) return parts[1]
+  return null
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Returns clean text for the job at `url`, or null. `generic` is true when it
@@ -323,6 +354,24 @@ export async function fetchJobDescription(url: string, hint: JdHint = {}): Promi
         .map((k) => (it[k] ? htmlToText(String(it[k])) : '')).filter(Boolean).join('\n\n'))
       if (r) return r
     }
+  }
+
+  if (host === 'ats.rippling.com' && parts[1] === 'jobs' && parts[2]) {
+    const j = (await getJson(`https://api.rippling.com/platform/api/ats/v1/board/${parts[0]}/jobs/${parts[2]}`)) as any
+    const d = j?.description
+    const r = ok(d && typeof d === 'object'
+      ? Object.values(d).filter((v): v is string => typeof v === 'string').map((v) => htmlToText(decodeEntities(v))).join('\n\n')
+      : null)
+    if (r) return r
+  }
+
+  const atlId = atlassianId(host, parts, hint)
+  if (atlId) {
+    const j = (await getJson(ATLASSIAN_FEED, {}, 30000)) as any
+    const x = Array.isArray(j) ? j.find((y: any) => String(y.id) === atlId) : null
+    const r = ok(x && ['overview', 'responsibilities', 'qualifications']
+      .map((k) => (x[k] ? htmlToText(decodeEntities(String(x[k]))) : '')).filter(Boolean).join('\n\n'))
+    if (r) return r
   }
 
   // Anything else: read the page. Many careers sites embed a schema.org
@@ -409,6 +458,16 @@ export async function listingStatus(url: string, hint: JdHint = {}): Promise<Lis
       if (r.status === 403 && r.json?.errorCode === 'S22') return 'gone'
       return verdict(r.status, () => !!r.json?.jobPostingInfo && r.json.jobPostingInfo.canApply !== false)
     }
+  }
+  // Rippling and Atlassian list every open role, so absence from the list means closed.
+  if (host === 'ats.rippling.com' && parts[1] === 'jobs' && parts[2]) {
+    const r = await probe(`https://api.rippling.com/platform/api/ats/v1/board/${parts[0]}/jobs`)
+    return r.status === 200 && Array.isArray(r.json) ? (r.json.some((x: any) => x.uuid === parts[2]) ? 'open' : 'gone') : 'unknown'
+  }
+  const atlId = atlassianId(host, parts, hint)
+  if (atlId) {
+    const r = await probe(ATLASSIAN_FEED)
+    return r.status === 200 && Array.isArray(r.json) ? (r.json.some((x: any) => String(x.id) === atlId) ? 'open' : 'gone') : 'unknown'
   }
   if (host.endsWith('.oraclecloud.com') && parts.includes('sites') && parts.includes('job')) {
     const site = parts[parts.indexOf('sites') + 1]

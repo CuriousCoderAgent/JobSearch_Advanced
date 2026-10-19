@@ -50,6 +50,7 @@ const SOURCE_LABEL: Record<string, [string, string]> = {
   greenhouse: ['Free feed · Greenhouse', 'good'], lever: ['Free feed · Lever', 'good'], ashby: ['Free feed · Ashby', 'good'],
   smartrecruiters: ['Free feed · SmartRecruiters', 'good'], workday: ['Free feed · Workday', 'good'],
   successfactors: ['Free feed · SuccessFactors', 'good'], oracle: ['Free feed · Oracle', 'good'], amazon: ['Free feed · Amazon', 'good'],
+  rippling: ['Free feed · Rippling', 'good'], atlassian: ['Free feed · Atlassian', 'good'],
   page: ['AI reads page when it changes', 'gold'], portal: ['Portal — check manually', 'violet'], none: ['No feed found — add a careers URL', 'bad']
 }
 

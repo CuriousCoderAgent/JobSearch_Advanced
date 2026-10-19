@@ -8,6 +8,7 @@ const wd = (tenant: string, pod: string, site: string): Omit<CompanySource, 'det
 const sf = (host: string): Omit<CompanySource, 'detectedAt'> => ({ type: 'successfactors', host })
 const or = (host: string, siteNumber: string): Omit<CompanySource, 'detectedAt'> => ({ type: 'oracle', host, siteNumber })
 const ats = (type: CompanySource['type'], slug: string): Omit<CompanySource, 'detectedAt'> => ({ type, slug })
+const portal = (url: string): Omit<CompanySource, 'detectedAt'> => ({ type: 'portal', url })
 
 const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['salesforce'], wd('salesforce', 'wd12', 'External_Career_Site')],
@@ -72,7 +73,54 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['stripe'], ats('greenhouse', 'stripe')],
   [['gitlab'], ats('greenhouse', 'gitlab')],
   [['intercom'], ats('greenhouse', 'intercom')],
-  [['mindtickle'], ats('lever', 'mindtickle')]
+  [['mindtickle'], ats('lever', 'mindtickle')],
+
+  // Added 2026-10-19, each checked against live jobs for the right company.
+  // IT services (SuccessFactors career sites).
+  [['capgemini', 'capgemini india'], sf('careers.capgemini.com')],
+  [['hcltech', 'hcl tech', 'hcl technologies', 'hcl'], sf('careers.hcltech.com')],
+  [['wipro'], sf('careers.wipro.com')],
+  // AI-native and tech-led companies hiring for GTM.
+  [['wiz'], ats('greenhouse', 'wizinc')],
+  [['sprinklr'], wd('sprinklr', 'wd1', 'careers')],
+  [['uniphore'], wd('uniphore', 'wd503', 'Uniphore')],
+  [['gong', 'gong.io'], ats('greenhouse', 'gongio')],
+  [['harness', 'harness.io'], ats('greenhouse', 'harnessinc')],
+  [['vercel'], ats('greenhouse', 'vercel')],
+  [['replit'], ats('ashby', 'replit')],
+  [['clay', 'clay labs'], ats('ashby', 'claylabs')],
+  [['hebbia'], ats('ashby', 'hebbia-ai')],
+  [['synthesia'], ats('ashby', 'synthesia')],
+  [['postman'], wd('postman', 'wd108', 'careers')],
+  [['mistral', 'mistral ai', 'mistralai', 'mistral.ai'], ats('ashby', 'mistral.ai')],
+  [['rippling'], { type: 'rippling', slug: 'rippling' }],
+  [['atlassian'], { type: 'atlassian' }],
+  [['deloitte', 'deloitte india', 'deloitte south asia'], sf('southasiacareers.deloitte.com')],
+  [['hexaware', 'hexaware technologies'], or('fa-etqo-saasfaprod1.fa.ocs.oraclecloud.com', 'CX_1')],
+  // Bootstrapped.
+  [['surge ai', 'surge', 'surgehq'], ats('ashby', 'surge-ai')],
+  [['zapier'], ats('ashby', 'zapier')],
+  [['midjourney'], ats('ashby', 'midjourney')],
+
+  // Closed job portals with no free feed (Taleo, iCIMS, Avature, RippleHire,
+  // Zwayam, Zoho Recruit, in-house). Listed so the radar links straight to
+  // them, and so a guessed slug can't match a different company (Greenhouse
+  // "tcs" and "sas" are other firms).
+  [['tcs', 'tata consultancy services'], portal('https://www.tcs.com/careers')],
+  [['cognizant'], portal('https://careers.cognizant.com/india-en/jobs/')],
+  [['infosys'], portal('https://career.infosys.com/joblist')],
+  [['tech mahindra', 'techmahindra'], portal('https://careers.techmahindra.com/CurrentOpportunity.aspx')],
+  [['ltimindtree', 'lti mindtree'], portal('https://www.ltimindtree.com/careers/')],
+  [['ibm'], portal('https://www.ibm.com/careers/search')],
+  [['sas', 'sas institute'], portal('https://globalcareers-sas.icims.com/jobs/intro')],
+  [['persistent', 'persistent systems'], portal('https://careers.persistent.com/')],
+  [['mphasis'], portal('https://careers.mphasis.com/')],
+  [['coforge'], portal('https://careers.coforge.com/coforge/')],
+  [['yellow.ai', 'yellow ai', 'yellowai'], portal('https://careers.yellow.ai/jobs/Careers')],
+  [['gupshup'], portal('https://www.gupshup.ai/careers')],
+  [['zoho', 'zoho corporation'], portal('https://careers.zohocorp.com/jobs/Careers')],
+  [['zerodha'], portal('https://careers.zerodha.com/')],
+  [['hugging face', 'huggingface'], portal('https://apply.workable.com/huggingface/')]
 ]
 
 const LOOKUP = new Map<string, Omit<CompanySource, 'detectedAt'>>()
