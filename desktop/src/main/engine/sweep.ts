@@ -7,6 +7,7 @@ import { bulkParse } from '../ai'
 import { discoverSource } from './discover'
 import { fetchFromSource, fetchJobDescription, getText, listingStatus, type JdHint, type RawJob } from './adapters'
 import { actedOn, appFor } from '../../shared/missed'
+import { isHighGrowth } from '../../shared/starters'
 
 async function inBatches<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
   let i = 0
@@ -115,15 +116,20 @@ async function judgeRelevance(candidates: Job[], profile: Profile): Promise<Map<
   ].filter(Boolean).join('\n')
   for (let i = 0; i < candidates.length; i += 80) {
     const chunk = candidates.slice(i, i + 80)
-    const listing = chunk.map((j, n) => `${n}. ${j.title} — ${j.company}${j.location ? ` (${j.location})` : ''}`).join('\n')
+    const listing = chunk.map((j, n) =>
+      `${n}. ${j.title} — ${j.company}${isHighGrowth(j.company) ? ' [AI-first / fast-growing]' : ''}${j.location ? ` (${j.location})` : ''}`).join('\n')
     const out = await bulkParse('jobs: judge relevance', {
       system:
         'You screen job listings for one senior candidate. Keep a role only if they would plausibly apply: right function ' +
         '(enterprise / B2B sales and sales leadership, including senior individual-contributor account roles, strategic ' +
         'partnerships and alliances, and customer-facing commercial roles at AI companies such as engagement managers or ' +
         'principals and solution specialists who own revenue) and right seniority (director-level individual contributor ' +
-        'or above, or a leadership role). Be generous with title wording, strict about function and level. Give a short ' +
-        'reason for each kept role.',
+        'or above, or a leadership role). Be generous with title wording, strict about function and level. ' +
+        'At companies marked [AI-first / fast-growing] the bar for level is lower, because a seat there is a step up: also ' +
+        'keep senior individual-contributor enterprise roles (Enterprise, Strategic, Majors or Named Account Executive), ' +
+        'and a startup\'s India or country sales lead even when it is titled "Sales Manager (India)" or similar. Still drop ' +
+        'SMB, mid-market, commercial, associate, inbound, SDR/BDR and roles covering other regions from an Indian hub. ' +
+        'Give a short reason for each kept role.',
       content: `${wants}\n\nListings:\n${listing}`,
       schema,
       maxTokens: 4000
@@ -209,9 +215,12 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
   // list has grown to cover them (only happens after keywords change).
   const fetchedIds = new Set(fresh.map((j) => j.id))
   for (const j of existing.values()) {
-    if (!fetchedIds.has(j.id) && j.lastSeen === now && j.relevant === false && j.relevanceReason === 'Not a sales role' &&
-      include?.test(j.title) && !j.dismissed) {
+    if (fetchedIds.has(j.id) || j.lastSeen !== now || j.dismissed) continue
+    if (j.relevant === false && j.relevanceReason === 'Not a sales role' && include?.test(j.title)) {
       j.relevant = null
+      fresh.push(j)
+    } else if (j.relevant === null) {
+      // Waiting for a verdict — e.g. set back to unjudged when the screen's rules change.
       fresh.push(j)
     }
   }

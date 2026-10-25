@@ -22,8 +22,9 @@ import {
   type BridgeStory, type DojoRound, type DojoSession, type Objection
 } from '../shared/types'
 import { fmtDays, missedSummary } from '../shared/missed'
+import { isHighGrowth } from '../shared/starters'
 
-const DATA_VERSION = 3
+const DATA_VERSION = 4
 const DEFAULT_SETTINGS: Settings = {
   onboarded: false,
   weeklyApplications: 5,
@@ -80,6 +81,15 @@ function migrate(): void {
       const add = SEED_OBJECTIONS.filter((o) => !texts.has(o.text)).map(seedToObjection)
       if (add.length) write('objections', [...have, ...add])
     }
+  }
+  // v4: the job screen now keeps senior enterprise AE roles and startup India
+  // sales leads at AI-first / fast-growing companies. Roles it turned down there
+  // on level are set back to unjudged; the next sweep looks at them again.
+  if (from < 4) {
+    update<Job[]>('jobs', [], (jobs) => jobs.map((j) =>
+      j.relevant === false && j.relevanceReason === 'Judged not a fit for your level/function' && isHighGrowth(j.company)
+        ? { ...j, relevant: null, relevanceReason: undefined }
+        : j))
   }
   if (from >= 2) return
 
