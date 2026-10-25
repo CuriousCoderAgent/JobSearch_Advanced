@@ -102,6 +102,58 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['zapier'], ats('ashby', 'zapier')],
   [['midjourney'], ats('ashby', 'midjourney')],
 
+  // Fast growers: valuation up several-fold since 2024 (added 2026-10-25, each
+  // board checked against the company's own job text).
+  [['wonderful', 'wonderful ai', 'wonderful.ai'], ats('ashby', 'wonderful')],
+  [['cognition', 'cognition ai', 'devin', 'windsurf'], ats('ashby', 'cognition')],
+  [['temporal', 'temporal technologies', 'temporal.io'], ats('ashby', 'temporal')],
+  [['clickhouse'], ats('ashby', 'clickhouse')],
+  [['saviynt'], ats('lever', 'saviynt')],
+  [['chainguard'], ats('greenhouse', 'chainguard')],
+  [['grafana', 'grafana labs'], ats('greenhouse', 'grafanalabs')],
+  [['airwallex'], ats('ashby', 'airwallex')],
+  [['rogo', 'rogo ai'], ats('ashby', 'rogo')],
+  [['legora'], ats('ashby', 'legora')],
+  [['lovable', 'lovable.dev'], ats('ashby', 'lovable')],
+  [['supabase'], ats('ashby', 'supabase')],
+  [['fireworks', 'fireworks ai', 'fireworks.ai'], ats('ashby', 'fireworks')],
+  [['baseten'], ats('ashby', 'baseten')],
+  [['island', 'island.io'], ats('greenhouse', 'island')],
+  [['vanta'], ats('ashby', 'vanta')],
+  [['n8n'], ats('ashby', 'n8n')],
+  [['genspark', 'genspark ai'], ats('ashby', 'genspark')],
+  [['giga', 'gigaml'], ats('ashby', 'gigaml')],
+  [['parloa'], ats('greenhouse', 'parloa')],
+  [['cato networks', 'cato'], ats('greenhouse', 'catonetworks')],
+  [['zeta', 'zeta suite', 'zeta tech'], ats('lever', 'zeta')],
+
+  // AI for sales and marketing teams (fast headcount growth, autumn 2026).
+  [['outreach', 'outreach.io'], ats('lever', 'outreach')],
+  [['profound', 'tryprofound'], ats('ashby', 'profound')],
+  [['nooks'], ats('ashby', 'nooks')],
+  [['monaco'], ats('ashby', 'monaco')],
+  [['attio'], ats('ashby', 'attio')],
+  [['rox'], ats('ashby', 'rox-data-corp')],
+  [['hightouch'], ats('ashby', 'hightouch')],
+  [['lightfield'], ats('ashby', 'lightfield')],
+  [['artisan', 'artisan ai'], ats('ashby', 'artisan')],
+  [['conversion'], ats('ashby', 'conversion')],
+  [['siro'], ats('ashby', 'siro')],
+  [['starbridge'], ats('ashby', 'starbridge')],
+  [['agentio'], ats('ashby', 'agentio')],
+  [['alembic'], ats('ashby', 'alembic')],
+  [['attention'], ats('ashby', 'attention')],
+  [['brandlight'], ats('ashby', 'brandlight')],
+  [['creatoriq'], ats('ashby', 'creatoriq')],
+  [['nectar', 'nectar social'], ats('ashby', 'nectar-social')],
+  [['rilla'], ats('ashby', 'rilla')],
+  [['aligned'], ats('greenhouse', 'aligned')],
+  [['bluefish', 'bluefish ai'], ats('greenhouse', 'bluefishai')],
+  [['forma.ai', 'forma ai', 'formaai'], ats('greenhouse', 'formaaiinc')],
+  [['gradial'], ats('greenhouse', 'gradial')],
+  [['levitate'], ats('greenhouse', 'levitate')],
+  [['brightedge'], ats('lever', 'brightedge')],
+
   // Closed job portals with no free feed (Taleo, iCIMS, Avature, RippleHire,
   // Zwayam, Zoho Recruit, in-house). Listed so the radar links straight to
   // them, and so a guessed slug can't match a different company (Greenhouse
@@ -120,7 +172,15 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['gupshup'], portal('https://www.gupshup.ai/careers')],
   [['zoho', 'zoho corporation'], portal('https://careers.zohocorp.com/jobs/Careers')],
   [['zerodha'], portal('https://careers.zerodha.com/')],
-  [['hugging face', 'huggingface'], portal('https://apply.workable.com/huggingface/')]
+  [['hugging face', 'huggingface'], portal('https://apply.workable.com/huggingface/')],
+  [['cyera'], portal('https://www.cyera.com/careers')],
+  [['vast data', 'vastdata', 'vast data services'], portal('https://www.vastdata.com/careers')],
+  [['neysa', 'neysa ai'], portal('https://neysa.ai/careers/job-openings/')],
+  [['yotta', 'yotta data services'], portal('https://yotta.com/careers/')],
+  [['juspay'], portal('https://juspay.io/careers')],
+  [['businessnext', 'crmnext'], portal('https://careers.businessnext.com/')],
+  [['gnani', 'gnani.ai', 'gnani ai'], portal('https://careers.gnani.ai/')],
+  [['darwinbox'], portal('https://dbx.darwinbox.in/ms/candidatev2/main/careers/allJobs')]
 ]
 
 const LOOKUP = new Map<string, Omit<CompanySource, 'detectedAt'>>()
