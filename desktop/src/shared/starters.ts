@@ -39,3 +39,12 @@ export const STARTER_GROUPS: { label: string; names: string[] }[] = [
     names: ['Surge AI', 'Midjourney', 'Zapier']
   }
 ]
+
+// AI-first and fast-growing companies. Here a senior enterprise AE seat, or a
+// startup's first India sales lead, is a real step up, so the job screen keeps
+// those roles too (elsewhere it wants director level and above).
+const HIGH_GROWTH_GROUPS = ['AI-first', 'Fast growers', 'AI for sales']
+export const HIGH_GROWTH = new Set(
+  STARTER_GROUPS.filter((g) => HIGH_GROWTH_GROUPS.some((p) => g.label.startsWith(p))).flatMap((g) => g.names.map((n) => n.toLowerCase()))
+)
+export const isHighGrowth = (company: string): boolean => HIGH_GROWTH.has(company.trim().toLowerCase())
