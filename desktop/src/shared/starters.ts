@@ -23,6 +23,18 @@ export const STARTER_GROUPS: { label: string; names: string[] }[] = [
     names: ['Accenture', 'Capgemini', 'HCLTech', 'Wipro', 'Deloitte', 'Hexaware', 'Genpact', 'Kyndryl', 'EY', 'PwC', 'KPMG']
   },
   {
+    label: 'Fast growers (valuation up several-fold since 2024)',
+    names: ['Cognition', 'Wonderful', 'Temporal', 'ClickHouse', 'Saviynt', 'Chainguard', 'Grafana Labs', 'Airwallex',
+      'Rogo', 'Legora', 'Lovable', 'Supabase', 'Fireworks AI', 'Baseten', 'Island', 'Vanta', 'n8n', 'Genspark', 'Parloa',
+      'Cato Networks', 'Zeta']
+  },
+  {
+    label: 'AI for sales & marketing',
+    names: ['Outreach', 'Profound', 'Nooks', 'Monaco', 'Attio', 'Rox', 'Hightouch', 'Lightfield', 'Artisan', 'Conversion',
+      'Siro', 'Starbridge', 'Agentio', 'Alembic', 'Attention', 'Brandlight', 'CreatorIQ', 'Nectar', 'Rilla', 'Aligned',
+      'Bluefish', 'Forma.ai', 'Gradial', 'Levitate', 'BrightEdge']
+  },
+  {
     label: 'Bootstrapped & profitable',
     names: ['Surge AI', 'Midjourney', 'Zapier']
   }
