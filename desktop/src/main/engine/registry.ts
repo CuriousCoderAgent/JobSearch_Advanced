@@ -154,6 +154,28 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['levitate'], ats('greenhouse', 'levitate')],
   [['brightedge'], ats('lever', 'brightedge')],
 
+  // Enterprise software, security and infrastructure vendors whose India
+  // sellers commonly move on to Salesforce / ServiceNow (added 2026-10-26).
+  [['sap'], sf('careers.sap.com')],
+  [['broadcom', 'vmware', 'vmware by broadcom'], wd('broadcom', 'wd1', 'External_Career')],
+  [['red hat', 'redhat'], wd('redhat', 'wd5', 'jobs')],
+  [['palo alto networks', 'palo alto'], wd('paloaltonetworks', 'wd5', 'panwexternalcareers')],
+  [['crowdstrike'], wd('crowdstrike', 'wd5', 'crowdstrikecareers')],
+  [['f5', 'f5 networks'], wd('ffive', 'wd5', 'f5jobs')],
+  [['zendesk'], wd('zendesk', 'wd1', 'zendesk')],
+  [['genesys'], wd('genesys', 'wd1', 'Genesys')],
+  [['fortinet'], or('edel.fa.us2.oraclecloud.com', 'CX_2001')],
+  [['icertis'], or('iaaviz.fa.ocs.oraclecloud.com', 'Jobs')],
+  [['check point', 'checkpoint', 'check point software'], ats('smartrecruiters', 'CheckPointSoftwareTechnologies2')],
+  [['sentinelone', 'sentinel one'], ats('greenhouse', 'sentinellabs')],
+  [['netskope'], ats('greenhouse', 'netskope')],
+  [['nice', 'nice ltd', 'nice systems'], ats('greenhouse', 'nice')],
+  [['pure storage', 'purestorage'], ats('greenhouse', 'purestorage')],
+  [['commvault'], ats('greenhouse', 'commvault')],
+  [['hubspot'], ats('greenhouse', 'hubspotjobs')],
+  [['qualtrics'], ats('greenhouse', 'qualtrics')],
+  [['computacenter'], sf('jobs.computacenter.com')],
+
   // Closed job portals with no free feed (Taleo, iCIMS, Avature, RippleHire,
   // Zwayam, Zoho Recruit, in-house). Listed so the radar links straight to
   // them, and so a guessed slug can't match a different company (Greenhouse
@@ -174,6 +196,22 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['zerodha'], portal('https://careers.zerodha.com/')],
   [['hugging face', 'huggingface'], portal('https://apply.workable.com/huggingface/')],
   [['cyera'], portal('https://www.cyera.com/careers')],
+  // Akamai's Oracle job site sits behind its own bot protection.
+  [['akamai', 'akamai technologies'], portal('https://jobs.akamai.com/en/sites/CX_1')],
+  [['microsoft'], portal('https://careers.microsoft.com/')],
+  [['google', 'google cloud'], portal('https://www.google.com/about/careers/applications/jobs/results/')],
+  [['dell', 'dell technologies'], portal('https://jobs.dell.com/')],
+  [['hpe', 'hewlett packard enterprise'], portal('https://careers.hpe.com/')],
+  [['nutanix'], portal('https://jobs.nutanix.com/')],
+  [['netapp'], portal('https://careers.netapp.com/')],
+  [['dynatrace'], portal('https://careers.dynatrace.com/')],
+  // Workday "bmc" is Boston Medical Center.
+  [['bmc', 'bmc software', 'bmc helix'], portal('https://www.bmc.com/careers.html')],
+  [['infor'], portal('https://careers.infor.com/')],
+  [['cloud software group', 'citrix'], portal('https://www.cloud.com/careers')],
+  [['leadsquared'], portal('https://www.leadsquared.com/careers/')],
+  [['kore.ai', 'kore ai', 'koreai'], portal('https://kore.ai/careers/')],
+  [['whatfix'], portal('https://whatfix.com/careers/')],
   [['vast data', 'vastdata', 'vast data services'], portal('https://www.vastdata.com/careers')],
   [['neysa', 'neysa ai'], portal('https://neysa.ai/careers/job-openings/')],
   [['yotta', 'yotta data services'], portal('https://yotta.com/careers/')],

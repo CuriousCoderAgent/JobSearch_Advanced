@@ -35,6 +35,11 @@ export const STARTER_GROUPS: { label: string; names: string[] }[] = [
       'Bluefish', 'Forma.ai', 'Gradial', 'Levitate', 'BrightEdge']
   },
   {
+    label: 'Enterprise software & security (paths to Salesforce / ServiceNow)',
+    names: ['SAP', 'Broadcom', 'Red Hat', 'Palo Alto Networks', 'CrowdStrike', 'Check Point', 'Fortinet', 'F5', 'SentinelOne',
+      'Netskope', 'Zendesk', 'Genesys', 'NICE', 'HubSpot', 'Qualtrics', 'Pure Storage', 'Commvault', 'Icertis', 'Computacenter']
+  },
+  {
     label: 'Bootstrapped & profitable',
     names: ['Surge AI', 'Midjourney', 'Zapier']
   }
