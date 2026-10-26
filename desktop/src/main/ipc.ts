@@ -5,7 +5,7 @@ import { read, write, update, newId, nowIso, today } from './store'
 import { getApiKey, hasApiKey, setApiKey } from './secrets'
 import { applicationsDir, cvDir, deskRoot, ensure, practiceDir, safeName } from './paths'
 import { costOf, monthSpend } from './ai'
-import { runSweep, DEFAULT_EXCLUDE, DEFAULT_INCLUDE, EXCLUDE_ADDED_V2, INCLUDE_ADDED_V2 } from './engine/sweep'
+import { runSweep, isRegionalSalesLead, DEFAULT_EXCLUDE, DEFAULT_INCLUDE, EXCLUDE_ADDED_V2, INCLUDE_ADDED_V2 } from './engine/sweep'
 import { getJobDescription } from './engine/jd'
 import { importCvFile, markdownToDocx, markdownToPdf } from './documents'
 import * as coach from './coach'
@@ -24,7 +24,7 @@ import {
 import { fmtDays, missedSummary } from '../shared/missed'
 import { isHighGrowth } from '../shared/starters'
 
-const DATA_VERSION = 4
+const DATA_VERSION = 5
 const DEFAULT_SETTINGS: Settings = {
   onboarded: false,
   weeklyApplications: 5,
@@ -88,6 +88,14 @@ function migrate(): void {
   if (from < 4) {
     update<Job[]>('jobs', [], (jobs) => jobs.map((j) =>
       j.relevant === false && j.relevanceReason === 'Judged not a fit for your level/function' && isHighGrowth(j.company)
+        ? { ...j, relevant: null, relevanceReason: undefined }
+        : j))
+  }
+  // v5: regional / district / area sales managers now count as leadership.
+  // Ones turned down on level go back to unjudged for the next sweep.
+  if (from < 5) {
+    update<Job[]>('jobs', [], (jobs) => jobs.map((j) =>
+      j.relevant === false && j.relevanceReason === 'Judged not a fit for your level/function' && isRegionalSalesLead(j.title)
         ? { ...j, relevant: null, relevanceReason: undefined }
         : j))
   }
