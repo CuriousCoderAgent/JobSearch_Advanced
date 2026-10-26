@@ -175,6 +175,7 @@ const ENTRIES: [string[], Omit<CompanySource, 'detectedAt'>][] = [
   [['hubspot'], ats('greenhouse', 'hubspotjobs')],
   [['qualtrics'], ats('greenhouse', 'qualtrics')],
   [['computacenter'], sf('jobs.computacenter.com')],
+  [['uipath', 'ui path'], ats('ashby', 'uipath')],
 
   // Closed job portals with no free feed (Taleo, iCIMS, Avature, RippleHire,
   // Zwayam, Zoho Recruit, in-house). Listed so the radar links straight to

@@ -46,6 +46,13 @@ const ANYWHERE = '\\b(remote|anywhere|worldwide|global|work from home|wfh)\\b'
 // optionally with a PIN code after it. It has to come last, so a US state
 // ("Indianapolis, IN, US") doesn't count.
 const COUNTRY_CODE_IN = /(^|,\s*)IN(\s*,\s*\d{6})?\s*$/
+// Regional / district / area / zonal sales managers run a territory and often
+// a team. He counts them as leadership, so they're kept by rule rather than
+// left to the AI screen (which has turned them down on the title alone).
+const REGIONAL_LEAD = /\b(regional|district|area|zonal)\s+(sales|business)\s+(manager|director|head|leader|lead)\b/i
+const NOT_LEAD = /\b(inside|inbound|smb|small business|associate|assistant|deputy|junior|trainee|intern)\b/i
+export const isRegionalSalesLead = (title: string): boolean => REGIONAL_LEAD.test(title) && !NOT_LEAD.test(title)
+
 export function isIndiaOrAnywhere(location: string): boolean {
   if (!location.trim() || INDIA_RE.test(location) || /\bIND\b/.test(location) || COUNTRY_CODE_IN.test(location.trim())) return true
   return new RegExp(ANYWHERE, 'i').test(location) && !location.replace(new RegExp(ANYWHERE, 'gi'), '').replace(/[^a-z]/gi, '')
@@ -232,6 +239,7 @@ export async function runSweep(onProgress: (p: SweepProgress) => void): Promise<
     if (exclude?.test(j.title)) { j.relevant = false; j.relevanceReason = 'Excluded keyword'; continue }
     if (include && !include.test(j.title)) { j.relevant = false; j.relevanceReason = 'Not a sales role'; continue }
     if (indiaOnly && !isIndiaOrAnywhere(j.location)) { j.relevant = false; j.relevanceReason = 'Outside India'; continue }
+    if (isRegionalSalesLead(j.title)) { j.relevant = true; j.relevanceReason = 'Regional sales leadership role'; continue }
     toJudge.push(j)
   }
   if (toJudge.length && settings.aiMatching !== false && hasApiKey()) {

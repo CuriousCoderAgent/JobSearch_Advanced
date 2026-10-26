@@ -12,7 +12,7 @@ export const STARTER_GROUPS: { label: string; names: string[] }[] = [
     label: 'Data & AI platforms',
     names: ['Databricks', 'Snowflake', 'MongoDB', 'Datadog', 'Elastic', 'Confluent', 'Salesforce', 'ServiceNow',
       'Workday', 'Adobe', 'Oracle', 'Amazon', 'Freshworks', 'Druva', 'BrowserStack', 'Atlassian', 'Rippling', 'Postman',
-      'Sprinklr', 'Gong', 'Vercel', 'Harness']
+      'Sprinklr', 'Gong', 'Vercel', 'Harness', 'UiPath']
   },
   {
     label: 'Security, infra & payments',
