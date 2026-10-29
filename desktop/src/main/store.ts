@@ -38,6 +38,12 @@ export function update<T>(name: string, fallback: T, fn: (current: T) => T): T {
   return write(name, fn(read(name, fallback)))
 }
 
+// Forget what's in memory so the next read comes from disk (the online
+// version calls this after a copy of the desktop's data is uploaded).
+export function clearCache(): void {
+  cache.clear()
+}
+
 export const newId = (): string => randomUUID()
 export const nowIso = (): string => new Date().toISOString()
 export const today = (): string => localDay()
