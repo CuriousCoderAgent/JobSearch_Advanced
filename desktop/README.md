@@ -21,6 +21,16 @@ A Windows desktop app for running a senior enterprise-sales move into an AI-firs
 
 Your files live in `Documents\JobRadar Desk` (CVs, application packs, practice recordings). App data and the downloaded speech model live in `%APPDATA%\JobRadar Desk`.
 
+## Online version (iPad, any laptop)
+
+The same app also runs as a website, for when the desktop isn't at hand. `web/server.ts` runs the desktop's own main process (`src/main`) on a server, with `web/electron-shim.ts` standing in for Electron, and `web/bridge.js` gives the unchanged UI its `window.desk` over HTTPS. The radar sweeps on the server, so it keeps running when no device is open.
+
+- **Hosting:** Railway, from `web/Dockerfile` (root directory `desktop`), with a volume at `/data` for app data and documents. Variables: `DESK_SECRET` (encrypts the stored API key and signs sessions), `SETUP_CODE` (one-time, for choosing the password), `SYNC_TOKEN`, `TZ=Asia/Kolkata`.
+- **Sign-in:** one password, chosen on first visit with the setup code. Sessions last 30 days; repeated wrong passwords are locked out for 15 minutes. `/logout` signs a device out.
+- **The API key** is entered in Settings on the website, like on the desktop, and stored encrypted on the server.
+- **Moving data across:** `node web/sync.mjs push` copies the desktop's data up (the server keeps a backup of what it had); `node web/sync.mjs pull` brings it back (close the desktop app first; the PC's data is backed up first). The address and token come from `%LOCALAPPDATA%\JobRadar Desk Online\sync.json`. Practice recordings stay on the PC.
+- **Differences from the desktop:** files you'd open in Explorer (exported CVs, application packs) come up as download cards; file imports use the browser's file picker; notifications appear in the page's corner while it's open.
+
 ## What it costs to run
 
 - **Job radar:** free for companies on public ATS feeds (Workday, Greenhouse, Lever, Ashby, SmartRecruiters, SuccessFactors, Oracle, Amazon). Custom careers pages are read with Claude Haiku 4.5, and only when the page actually changes. Only brand-new listings that pass the free keyword/location filter are judged by AI.

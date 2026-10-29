@@ -30,7 +30,8 @@ export function transcribe(audio: Float32Array, onStatus: (s: string) => void): 
     }
     w.onerror = (e) => reject(new Error(`Speech recognition failed: ${e.message}`))
     const copy = audio.slice() // the caller keeps its own copy for analysis
-    w.postMessage({ audio: copy }, [copy.buffer])
+    const modelHost = window.deskWeb ? `${location.origin}/models/hf/` : undefined
+    w.postMessage({ audio: copy, modelHost }, [copy.buffer])
   })
 }
 

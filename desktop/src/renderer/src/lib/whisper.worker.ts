@@ -46,9 +46,11 @@ function cutPoints(a: Float32Array): number[] {
   return cuts
 }
 
-self.onmessage = async (e: MessageEvent<{ audio: Float32Array }>) => {
+self.onmessage = async (e: MessageEvent<{ audio: Float32Array; modelHost?: string }>) => {
   try {
     if (!asr) {
+      // The online version serves the same model files over https instead.
+      if (e.data.modelHost) env.remoteHost = e.data.modelHost
       self.postMessage({ type: 'status', text: 'Loading the speech model (first time only, ~80 MB)…' })
       asr = await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8' })
     }

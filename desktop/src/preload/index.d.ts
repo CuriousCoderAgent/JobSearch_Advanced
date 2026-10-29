@@ -6,5 +6,7 @@ declare global {
       invoke: (channel: string, ...args: unknown[]) => Promise<{ ok: true; data: unknown } | { ok: false; error: string }>
       on: (channel: string, cb: (payload: unknown) => void) => () => void
     }
+    // Set by the online version's bridge (desktop/web/bridge.js).
+    deskWeb?: boolean
   }
 }
