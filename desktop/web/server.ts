@@ -25,6 +25,7 @@ if (SECRET.length < 32) { console.error('DESK_SECRET must be set (32+ characters
 const here = fileURLToPath(new URL('.', import.meta.url))
 const RENDERER = resolve(process.env['DESK_RENDERER_DIR'] || join(here, '../../out/renderer'))
 const BRIDGE = resolve(join(here, '../bridge.js'))
+const ICONS = resolve(join(here, '../icons'))
 const UPLOADS = join(dataRoot, 'uploads')
 const AUTH_FILE = join(dataRoot, 'web-auth.json')
 const docsRoot = (): string => join(app.getPath('documents'), 'JobRadar Desk')
@@ -95,7 +96,7 @@ function loginPage(message = ''): string {
   const setup = !readAuth()
   const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JobRadar Desk</title><style>
+<title>JobRadar Desk</title>${ICON_TAGS}<style>
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0f1a;color:#e5e7eb;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 form{width:min(360px,calc(100vw - 32px));background:#141a2b;border:1px solid #2a3350;border-radius:16px;padding:28px}
 h1{font-size:22px;margin:0 0 6px}p{color:#9ca3af;margin:0 0 18px;font-size:14px}
@@ -115,6 +116,19 @@ ${setup ? '<label for="again">Same password again</label><input id="again" name=
 ${message ? `<div class="err">${esc(message)}</div>` : ''}
 </form></body></html>`
 }
+
+// Browser tab and home-screen icons. iOS fetches these without the session
+// cookie, so they're served before the sign-in check.
+const ICON_TAGS = `<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="JobRadar">`
+const ICON_FILES: Record<string, string> = {
+  '/favicon.ico': 'favicon-32.png', '/favicon-32.png': 'favicon-32.png', '/icon-192.png': 'icon-192.png',
+  '/apple-touch-icon.png': 'apple-touch-icon.png', '/apple-touch-icon-precomposed.png': 'apple-touch-icon.png'
+}
+const iconFile = (path: string): string | undefined =>
+  ICON_FILES[path] || (/^\/apple-touch-icon(-\d+x\d+)?(-precomposed)?\.png$/.test(path) ? 'apple-touch-icon.png' : undefined)
 
 // ---------- Helpers ----------
 
@@ -188,7 +202,7 @@ function appPage(): string {
   if (!indexHtml) {
     indexHtml = readFileSync(join(RENDERER, 'index.html'), 'utf8').replace(
       '<head>',
-      '<head>\n    <meta name="viewport" content="width=1180">\n    <script src="/web-bridge.js"></script>'
+      `<head>\n    <meta name="viewport" content="width=1180">\n    ${ICON_TAGS}\n    <script src="/web-bridge.js"></script>`
     )
   }
   return indexHtml
@@ -273,6 +287,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const method = req.method || 'GET'
 
   if (path === '/healthz') return send(res, 200, 'ok')
+  const icon = iconFile(path)
+  if (icon) return send(res, 200, readFileSync(join(ICONS, icon)), 'image/png', { 'cache-control': 'public, max-age=86400' })
 
   // Desktop sync: its own bearer token, no browser session.
   if (path.startsWith('/api/sync/')) {
